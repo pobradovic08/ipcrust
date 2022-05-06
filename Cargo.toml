@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 regex = "1.5.5"
 log = "0.4.17"
+clap = "3.1.15"
+ansi_term = "0.12.1"
