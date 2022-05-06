@@ -4,6 +4,9 @@ use clap::{arg, Command};
 use ansi_term;
 
 const MAX_EXPONENT: usize = 5;
+const MIN_PACKET_SIZE: i32 = 64;
+const MAX_PACKET_SIZE: i32 = 64;
+const DEFAULT_PACKET_SIZE: i32 = 64;
 
 ///
 /// Convert absolute number to base number and exponent.
@@ -94,6 +97,20 @@ fn get_efficiency(packet_size: i32, overhead: i32) -> f64 {
     packet_size as f64 / (packet_size + overhead + 20) as f64
 }
 
+
+///
+/// Return single integer representing throughput in bps
+///
+fn print_bps_terse(pps: f64, exponent: usize, packet_size: i32) {
+    let normalized = normalize_units(to_bps(pps, packet_size), exponent);
+    println!("{:.0?}", normalized.0 * (i64::pow(1024, normalized.1 as u32)) as f64);
+}
+
+///
+/// Print table with results.
+/// Table contains throughput calculations for multiple packet sizes (64B, 594B, 1518B),
+/// and also throughput when taking encaapsulation overhead into account.
+///
 fn print_bps_results(pps: f64, exponent: usize, packet_size: i32) {
 
     let underline = ansi_term::Style::new().underline();
@@ -125,8 +142,8 @@ fn print_bps_results(pps: f64, exponent: usize, packet_size: i32) {
 
     println!("{:=^60}\n", "[ Packets Per Second Calculator ]");
 
-    println!("Input PPS:  \x1b[1;92m{}\x1b[0m", print_units((pps, exponent), "pps"));
-    println!("Packet size: \x1b[1;92m{} B\x1b[0m\n", packet_size);
+    println!("Input PPS:   \x1b[1;92m{}\x1b[0m", print_units((pps, exponent), "pps"));
+    println!("Packet size: \x1b[1;92m{:4} B\x1b[0m\n", packet_size);
 
     // Throughput section header
     println!("{:<23}{:<28}{:<28}\x1b[0m",
@@ -185,6 +202,7 @@ fn main() -> io::Result<()> {
         .about("Converts PPS value to maximum theoretical throughput.")
         .arg(arg!(<pps> "Packets Per Second in [pps, kpps, mpps, ...]"))
         .arg(arg!(-s --size [packet_size] "Packet size in bytes").default_value("64"))
+        .arg(arg!(-t --terse "Show just result in bps"))
         .get_matches();
 
     let pps_input: &str;
@@ -198,16 +216,20 @@ fn main() -> io::Result<()> {
     match arguments.value_of("size") {
         Some(v) => match v.parse::<i32>() {
             Ok(v) => match v {
-                64..=65536 => packet_size= v,
-                _ => panic!("Packet size must be between 64B and 64KB (65536B)")
+                MIN_PACKET_SIZE..=MAX_PACKET_SIZE => packet_size= v,
+                _ => panic!("Packet size must be between {}B and {}B)", MIN_PACKET_SIZE, MAX_PACKET_SIZE)
             },
-            Err(_) => packet_size = 64,
+            Err(_) => packet_size = DEFAULT_PACKET_SIZE,
         },
-        None => packet_size = 64,
+        None => packet_size = DEFAULT_PACKET_SIZE,
     }
 
     let (pps, exponent) = parse_units(pps_input);
-    print_bps_results(pps, exponent, packet_size);
+
+    match arguments.is_present("terse") {
+        true => print_bps_terse(pps, exponent, packet_size),
+        false => print_bps_results(pps, exponent, packet_size)
+    }
 
     Ok(())
 }
