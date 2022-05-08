@@ -88,6 +88,7 @@ fn is_contiguous(mut number: u32) -> bool {
 
 struct IPv4Address {
     address: u32,
+    class: AddressClass,
 }
 
 struct IPv4Mask {
@@ -96,22 +97,29 @@ struct IPv4Mask {
 
 impl IPv4Address {
     fn from_string(address_string: &str) -> IPv4Address {
-        IPv4Address { address: dotted_decimal_to_int(address_string) }
+        let int_value = dotted_decimal_to_int(address_string);
+        let class = AddressClass::get(int_value);
+        IPv4Address { address: int_value, class }
+    }
+
+    fn from_int(int_value: u32) -> IPv4Address {
+        let class = AddressClass::get(int_value);
+        IPv4Address { address: int_value, class }
     }
 
     fn dotted_decimal(&self) -> String {
         int_to_dotted_decimal(&self.address)
     }
 
+    ///
+    /// Classes A through C have network masks: /8, /16 and /24 respectively
+    ///
     fn get_default_class_cidr(&self) -> u8 {
-        if (self.address >> 31) == 0b0 {
-            return 8
-        } else if (self.address >> 30) == 0b10 {
-            return 16
-        } else if (self.address >> 29) == 0b110 {
-            return 24
-        } else {
-            panic!("Address not in A, B or C class. No default mask available.")
+        match self.class {
+            AddressClass::A => 8,
+            AddressClass::B => 16,
+            AddressClass::C => 24,
+            _ => panic!("Address not in A, B or C class. No default mask available.")
         }
     }
 }
@@ -120,14 +128,17 @@ impl IPv4Mask {
     fn from_dotted_decimal(address_string: &str) -> IPv4Mask {
         let mask = IPv4Mask { address: dotted_decimal_to_int(address_string) };
         if mask.is_valid_mask() {
-            return mask
+            return mask;
         } else {
             panic!("Invalid subnet mask. Must have contiguous bits.")
         }
     }
 
     fn from_cidr(cidr: u8) -> IPv4Mask {
-        IPv4Mask { address: u32::MAX << (32 - cidr) }
+        match cidr {
+            0 => IPv4Mask { address: 0 },
+            _ => IPv4Mask { address: u32::MAX << (32 - cidr) }
+        }
     }
 
     fn dotted_decimal(&self) -> String {
@@ -139,7 +150,7 @@ impl IPv4Mask {
     }
 
     fn is_valid_mask(&self) -> bool {
-        return is_contiguous(self.address)
+        return is_contiguous(self.address);
     }
 }
 
@@ -155,6 +166,47 @@ impl Display for IPv4Mask {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum AddressClass { A, B, C, D, E, ZERO, BROADCAST }
+
+impl AddressClass {
+    ///
+    /// | Class   | 1st octet value |
+    /// |---------|-----------------|
+    /// | A       | 1 - 127         |
+    /// | B       | 128 - 191       |
+    /// | C       | 192 - 223       |
+    /// | D       | 224 - 239       |
+    /// | E       | 240 - 255       |
+    ///
+    /// Matching the most significant bits for A-C classes:
+    ///
+    /// ```
+    /// Class A - 0xxxxxxx
+    /// Class B - 10xxxxxx
+    /// Class C - 110xxxxx
+    /// Class D - 1110xxxx
+    /// Class E - 1111xxxx
+    /// ```
+    ///
+    fn get(address: u32) -> AddressClass {
+        return if address == 0 {
+            AddressClass::ZERO
+        } else if address == u32::MAX {
+            AddressClass::BROADCAST
+        } else if (address >> 31) == 0b0 {
+            AddressClass::A
+        } else if (address >> 30) == 0b10 {
+            AddressClass::B
+        } else if (address >> 29) == 0b110 {
+            AddressClass::C
+        } else if (address >> 28) == 0b1110 {
+            AddressClass::D
+        } else {
+            AddressClass::E
+        };
+    }
+}
 
 struct IPv4Network<'a> {
     ip: &'a IPv4Address,
@@ -165,28 +217,138 @@ struct IPv4Network<'a> {
 
 impl<'a> IPv4Network<'a> {
     fn new(ip: &'a IPv4Address, mask: &'a IPv4Mask) -> IPv4Network<'a> {
+        let network: IPv4Address;
+        let broadcast: IPv4Address;
 
-        let network= IPv4Address { address: ip.address & mask.address };
-        let broadcast = IPv4Address { address: network.address | (u32::MAX >> mask.to_cidr()) };
+        match mask.to_cidr() {
+            32 => {
+                network = IPv4Address::from_int(ip.address);
+                broadcast = IPv4Address::from_int(ip.address);
+            }
+            _ => {
+                network = IPv4Address::from_int(ip.address & mask.address);
+                broadcast = IPv4Address::from_int(network.address | (u32::MAX >> mask.to_cidr()));
+            }
+        }
 
         IPv4Network { ip, mask, network, broadcast }
     }
 
+    fn get_first_address(&self) -> IPv4Address {
+        if self.is_host() || self.is_p2p() {
+            return IPv4Address::from_int(self.network.address);
+        }
+        IPv4Address::from_int(self.network.address + 1)
+    }
+
+    fn get_last_address(&self) -> IPv4Address {
+        if self.is_host() || self.is_p2p() {
+            return IPv4Address::from_int(self.broadcast.address);
+        }
+        IPv4Address::from_int(self.broadcast.address - 1)
+    }
+
     #[allow(dead_code)]
     fn contains(&self, ip: IPv4Address) -> bool {
-        return self.network.address <= ip.address && ip.address <= self.broadcast.address
+        return self.network.address <= ip.address && ip.address <= self.broadcast.address;
+    }
+
+    fn is_host(&self) -> bool {
+        return self.mask.address == u32::MAX;
+    }
+
+    fn is_p2p(&self) -> bool {
+        return self.mask.address == u32::MAX - 1;
     }
 }
 
-impl <'a> Display for IPv4Network<'a> {
+impl<'a> Display for IPv4Network<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.ip.dotted_decimal(), self.mask.to_cidr())
     }
 }
 
-fn main() {
+fn print_binary_colored(address: u32, position: u8) -> String {
+    let tmp = format!("{:b}", address);
+    let mut network_part = String::new();
+    let mut host_part = String::new();
 
-    let ip_string = String::from("10.168.0.1");
+    let mut ptr = &mut network_part;
+
+    for (i, char) in tmp.chars().enumerate() {
+        if i == position as usize {
+            ptr = &mut host_part;
+        }
+        if i % 8 == 0 {
+            ptr.push(' ');
+        }
+        match char {
+            '1' => {
+                ptr.push('█');
+                ptr.push('█');
+            },
+            _ => {
+                ptr.push('░');
+                ptr.push('░');
+            }
+        }
+    }
+
+    //let (network_part, host_part) = replaced.split_at(position as usize);
+
+    format!("\x1b[94m{}\x1b[38;5;214m{}\x1b[0m", network_part, host_part)
+}
+
+fn print_results(net: &IPv4Network) {
+    let tw = 71;
+
+    println!("┌{:─^1$}┐", "", tw - 2);
+    println!("│{0:<2$} {1:<2$}│",
+             format!("\x1b[1;92m ▒ Address:    {}/{}\x1b[0m", net.ip, net.mask.to_cidr()),
+             format!("\x1b[1;96m ░ Class:      {:18}\x1b[0m", "Class A"),
+             (tw + 20) / 2
+    );
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{0:<2$} {1:<2$}│",
+             format!(" ░ Mask:       {:18}", net.mask),
+             format!(" ░ Wildcard:   {:18}", net.mask),
+             (tw - 2) / 2
+    );
+    println!("│{0:<2$} {1:<2$}│",
+             format!(" ░ Network:    {:18}", net.network),
+             format!(" ░ First IPv4: {:18}", net.get_first_address()),
+             (tw - 2) / 2
+    );
+    println!("│{0:<2$} {1:<2$}│",
+             format!(" ░ Broadcast:  {:18}", net.broadcast),
+             format!(" ░ Last IPv4:  {:18}", net.get_last_address()),
+             (tw - 2) / 2
+    );
+    println!("│{:^1$}│", "", tw - 2);
+    if net.is_host() {
+        println!("│{:<1$}│", "\x1b[93m ░ Note: Network represents a host (/32 route).\x1b[0m", tw + 7);
+    }
+    if net.is_p2p() {
+        println!("│{:<1$}│", "\x1b[93m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 7);
+    }
+    println!("├{:─^1$}┤", "", tw - 2);
+    println!("│{:<1$}│", "\x1b[1m ▒ Binary address representation:\x1b[0m", tw + 6);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{:<1$}│", "\x1b[94m █▒ Network part \x1b[38;5;214m █▒ Hosts part \x1b[0m", tw + 18);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{:<1$}│", " 01            08 09            16 17            24 25            32", tw - 2);
+    println!("│{:<1$}│", "\x1b[38;5;244m ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄  \x1b[0m", tw + 13);
+    println!("│{:<1$}│", format!("{:>80}",
+                                 print_binary_colored(net.ip.address, net.mask.to_cidr())),
+             tw + 18);
+    //println!("│{:<1$}│", " ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤", tw - 2);
+    println!("│{:<1$}│", " └── OCTET  1 ──┘ └── OCTET  2 ──┘ └── OCTET  3 ──┘ └── OCTET  4 ──┘", tw - 2);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("└{:─^1$}┘", "", tw - 2);
+}
+
+fn main() {
+    let ip_string = String::from("192.168.255.123/24");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
@@ -209,8 +371,7 @@ fn main() {
     }
 
     let net = IPv4Network::new(&ip, &mask);
-    println!("{} / {}", ip, mask);
-    println!("{}", net);
+    print_results(&net);
 }
 
 #[cfg(test)]
@@ -218,8 +379,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_ip_class() {
+        assert_eq!(AddressClass::get(IPv4Address::from_string("0.0.0.0").address), AddressClass::ZERO);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("0.0.0.1").address), AddressClass::A);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("127.255.255.255").address), AddressClass::A);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("128.0.0.0").address), AddressClass::B);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("191.255.255.255").address), AddressClass::B);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("192.0.0.0").address), AddressClass::C);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("223.255.255.255").address), AddressClass::C);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("224.0.0.0").address), AddressClass::D);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("239.255.255.255").address), AddressClass::D);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("240.0.0.0").address), AddressClass::E);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("255.255.255.254").address), AddressClass::E);
+        assert_eq!(AddressClass::get(IPv4Address::from_string("255.255.255.255").address), AddressClass::BROADCAST);
+    }
+
+    #[test]
     fn test_default_cidr_mask() {
-        assert_eq!(IPv4Address::from_string("0.0.0.0").get_default_class_cidr(), 8);
+        assert_eq!(IPv4Address::from_string("0.0.0.1").get_default_class_cidr(), 8);
         assert_eq!(IPv4Address::from_string("127.255.255.255").get_default_class_cidr(), 8);
         assert_eq!(IPv4Address::from_string("128.0.0.0").get_default_class_cidr(), 16);
         assert_eq!(IPv4Address::from_string("191.255.255.255").get_default_class_cidr(), 16);
@@ -229,8 +406,37 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_default_cidr_mask_d_class(){
+    fn test_default_cidr_mask_zeros() {
+        IPv4Address::from_string("0.0.0.0").get_default_class_cidr();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_default_cidr_mask_d_class_start() {
         IPv4Address::from_string("224.0.0.0").get_default_class_cidr();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_default_cidr_mask_d_class_end() {
+        IPv4Address::from_string("239.255.255.255").get_default_class_cidr();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_default_cidr_mask_e_class_start() {
+        IPv4Address::from_string("240.0.0.0").get_default_class_cidr();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_default_cidr_mask_e_class_end() {
+        IPv4Address::from_string("255.255.255.254").get_default_class_cidr();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_default_cidr_mask_broadcast() {
         IPv4Address::from_string("255.255.255.255").get_default_class_cidr();
     }
 }
