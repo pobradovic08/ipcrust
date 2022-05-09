@@ -1,6 +1,7 @@
 extern crate core;
 
 use std::fmt::{Display, Formatter};
+use std::ops::Add;
 //use std::io;
 use regex::Regex;
 
@@ -86,16 +87,19 @@ fn is_contiguous(mut number: u32) -> bool {
     number == 0 && counter == 0
 }
 
+#[derive(Copy, Clone)]
 struct IPv4Address {
     address: u32,
     class: AddressClass,
 }
 
+#[derive(Copy, Clone)]
 struct IPv4Mask {
     address: u32,
 }
 
 impl IPv4Address {
+
     fn from_string(address_string: &str) -> IPv4Address {
         let int_value = dotted_decimal_to_int(address_string);
         let class = AddressClass::get(int_value);
@@ -166,7 +170,7 @@ impl Display for IPv4Mask {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum AddressClass { A, B, C, D, E, ZERO, BROADCAST }
 
 impl AddressClass {
@@ -206,17 +210,63 @@ impl AddressClass {
             AddressClass::E
         };
     }
+
+    fn get_additional_info(address: IPv4Address) -> Vec<String> {
+
+        let n = | network: &str, cidr: u8 | IPv4Network::from_string_cidr(network, cidr);
+        let mut info_array: Vec<String> = vec!();
+
+        let address_info_map: [(IPv4Network, &str); 15] = [
+            (n("0.0.0.0", 8), "Source hosts on 'this' network - RFC1122"),
+            (n("10.0.0.0", 8), "Class A private address - RFC1918"),
+            (n("127.0.0.0", 8), "Loopback addresses - RFC1122"),
+            (n("169.254.0.0", 16), "Link local address block - RFC3927"),
+            (n("172.16.0.0", 12), "Class B private address - RFC1918"),
+            (n("192.0.0.0", 24), "Reserved for IETF protocol assignments - RFC5736"),
+            (n("192.0.2.0", 24), "For use in documentation and example code - RFC5737"),
+            (n("192.88.99.0", 24), "6to4 Relay Anycast - RFC3068"),
+            (n("192.168.0.0", 16), "Class C private address - RFC1918"),
+            (n("198.18.0.0", 15), "Device Benchmark Testing addressing - RFC2544"),
+            (n("198.51.100.0", 24), "For use in documentation and example code - RFC5737"),
+            (n("203.0.113.0", 24), "For use in documentation and example code - RFC5737"),
+            (n("224.0.0.0", 4), "Multicast - RFC3171"),
+            (n("240.0.0.0", 24), "Reserved for Future Use - RFC1112"),
+            (n("255.255.255.255", 32), "Limited Broadcast - RFC919, RFC922")
+        ];
+
+        for (network, note) in address_info_map {
+            if network.contains(address) {
+                info_array.push(String::from(note))
+            }
+        }
+
+        info_array
+    }
 }
 
-struct IPv4Network<'a> {
-    ip: &'a IPv4Address,
-    mask: &'a IPv4Mask,
+impl Display for AddressClass {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressClass::A => write!(f, "Class A"),
+            AddressClass::B => write!(f, "Class B"),
+            AddressClass::C => write!(f, "Class C"),
+            AddressClass::D => write!(f, "Class D"),
+            AddressClass::E => write!(f, "Class E"),
+            AddressClass::ZERO => write!(f, "Zero address"),
+            AddressClass::BROADCAST => write!(f, "Broadcast address")
+        }
+    }
+}
+
+struct IPv4Network {
+    ip: IPv4Address,
+    mask: IPv4Mask,
     network: IPv4Address,
     broadcast: IPv4Address,
 }
 
-impl<'a> IPv4Network<'a> {
-    fn new(ip: &'a IPv4Address, mask: &'a IPv4Mask) -> IPv4Network<'a> {
+impl IPv4Network {
+    fn new(ip: IPv4Address, mask: IPv4Mask) -> IPv4Network {
         let network: IPv4Address;
         let broadcast: IPv4Address;
 
@@ -232,6 +282,13 @@ impl<'a> IPv4Network<'a> {
         }
 
         IPv4Network { ip, mask, network, broadcast }
+    }
+
+    fn from_string_cidr(network: &str, cidr: u8) -> IPv4Network {
+        let ip = IPv4Address::from_string(network);
+        let mask = IPv4Mask::from_cidr(cidr);
+
+        IPv4Network::new(ip, mask)
     }
 
     fn get_first_address(&self) -> IPv4Address {
@@ -262,7 +319,7 @@ impl<'a> IPv4Network<'a> {
     }
 }
 
-impl<'a> Display for IPv4Network<'a> {
+impl Display for IPv4Network {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}/{}", self.ip.dotted_decimal(), self.mask.to_cidr())
     }
@@ -305,7 +362,7 @@ fn print_results(net: &IPv4Network) {
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
              format!("\x1b[1;92m ▒ Address:    {}/{}\x1b[0m", net.ip, net.mask.to_cidr()),
-             format!("\x1b[1;96m ░ Class:      {:18}\x1b[0m", "Class A"),
+             format!("\x1b[1;96m ░ Class:      {:18}\x1b[0m", net.ip.class),
              (tw + 20) / 2
     );
     println!("│{:^1$}│", "", tw - 2);
@@ -331,6 +388,11 @@ fn print_results(net: &IPv4Network) {
     if net.is_p2p() {
         println!("│{:<1$}│", "\x1b[93m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 7);
     }
+
+    for note in AddressClass::get_additional_info(net.ip) {
+        println!("│{:<1$}│", format!("\x1b[93m ░ Note: {}.\x1b[0m", note), tw + 7);
+    }
+
     println!("├{:─^1$}┤", "", tw - 2);
     println!("│{:<1$}│", "\x1b[1m ▒ Binary address representation:\x1b[0m", tw + 6);
     println!("│{:^1$}│", "", tw - 2);
@@ -348,7 +410,7 @@ fn print_results(net: &IPv4Network) {
 }
 
 fn main() {
-    let ip_string = String::from("192.168.255.123/24");
+    let ip_string = String::from("240.12.12.12/24");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
@@ -370,7 +432,7 @@ fn main() {
         _ => panic!("Invalid input format.")
     }
 
-    let net = IPv4Network::new(&ip, &mask);
+    let net = IPv4Network::new(ip, mask);
     print_results(&net);
 }
 
