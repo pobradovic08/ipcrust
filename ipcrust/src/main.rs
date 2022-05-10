@@ -216,9 +216,10 @@ impl AddressClass {
         let n = | network: &str, cidr: u8 | IPv4Network::from_string_cidr(network, cidr);
         let mut info_array: Vec<String> = vec!();
 
-        let address_info_map: [(IPv4Network, &str); 15] = [
+        let address_info_map: [(IPv4Network, &str); 16] = [
             (n("0.0.0.0", 8), "Source hosts on 'this' network - RFC1122"),
             (n("10.0.0.0", 8), "Class A private address - RFC1918"),
+            (n("100.64.0.0", 10), "Shared address space - RFC6598"),
             (n("127.0.0.0", 8), "Loopback addresses - RFC1122"),
             (n("169.254.0.0", 16), "Link local address block - RFC3927"),
             (n("172.16.0.0", 12), "Class B private address - RFC1918"),
@@ -326,7 +327,7 @@ impl Display for IPv4Network {
 }
 
 fn print_binary_colored(address: u32, position: u8) -> String {
-    let tmp = format!("{:b}", address);
+    let tmp = format!("{:032b}", address);
     let mut network_part = String::new();
     let mut host_part = String::new();
 
@@ -410,7 +411,7 @@ fn print_results(net: &IPv4Network) {
 }
 
 fn main() {
-    let ip_string = String::from("240.12.12.12/24");
+    let ip_string = String::from("10.64.0.0/24");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
