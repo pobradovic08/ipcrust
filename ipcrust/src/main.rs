@@ -1,7 +1,6 @@
 extern crate core;
 
 use std::fmt::{Display, Formatter};
-use std::ops::Add;
 //use std::io;
 use regex::Regex;
 
@@ -90,7 +89,7 @@ fn is_contiguous(mut number: u32) -> bool {
 #[derive(Copy, Clone)]
 struct IPv4Address {
     address: u32,
-    class: AddressClass,
+    class: AddressClassV4,
 }
 
 #[derive(Copy, Clone)]
@@ -102,12 +101,12 @@ impl IPv4Address {
 
     fn from_string(address_string: &str) -> IPv4Address {
         let int_value = dotted_decimal_to_int(address_string);
-        let class = AddressClass::get(int_value);
+        let class = AddressClassV4::get(int_value);
         IPv4Address { address: int_value, class }
     }
 
     fn from_int(int_value: u32) -> IPv4Address {
-        let class = AddressClass::get(int_value);
+        let class = AddressClassV4::get(int_value);
         IPv4Address { address: int_value, class }
     }
 
@@ -120,9 +119,9 @@ impl IPv4Address {
     ///
     fn get_default_class_cidr(&self) -> u8 {
         match self.class {
-            AddressClass::A => 8,
-            AddressClass::B => 16,
-            AddressClass::C => 24,
+            AddressClassV4::A => 8,
+            AddressClassV4::B => 16,
+            AddressClassV4::C => 24,
             _ => panic!("Address not in A, B or C class. No default mask available.")
         }
     }
@@ -153,8 +152,12 @@ impl IPv4Mask {
         int_to_cidr(&self.address, 0)
     }
 
+    fn to_wildcard(&self) -> String {
+        int_to_dotted_decimal(&!self.address)
+    }
+
     fn is_valid_mask(&self) -> bool {
-        return is_contiguous(self.address);
+        is_contiguous(self.address)
     }
 }
 
@@ -171,9 +174,9 @@ impl Display for IPv4Mask {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-enum AddressClass { A, B, C, D, E, ZERO, BROADCAST }
+enum AddressClassV4 { A, B, C, D, E, ZERO, BROADCAST }
 
-impl AddressClass {
+impl AddressClassV4 {
     ///
     /// | Class   | 1st octet value |
     /// |---------|-----------------|
@@ -193,21 +196,21 @@ impl AddressClass {
     /// Class E - 1111xxxx
     /// ```
     ///
-    fn get(address: u32) -> AddressClass {
+    fn get(address: u32) -> AddressClassV4 {
         return if address == 0 {
-            AddressClass::ZERO
+            AddressClassV4::ZERO
         } else if address == u32::MAX {
-            AddressClass::BROADCAST
+            AddressClassV4::BROADCAST
         } else if (address >> 31) == 0b0 {
-            AddressClass::A
+            AddressClassV4::A
         } else if (address >> 30) == 0b10 {
-            AddressClass::B
+            AddressClassV4::B
         } else if (address >> 29) == 0b110 {
-            AddressClass::C
+            AddressClassV4::C
         } else if (address >> 28) == 0b1110 {
-            AddressClass::D
+            AddressClassV4::D
         } else {
-            AddressClass::E
+            AddressClassV4::E
         };
     }
 
@@ -246,26 +249,26 @@ impl AddressClass {
 
     fn get_class_no_bits(&self) -> u8 {
         match self {
-            AddressClass::A => 1,
-            AddressClass::B => 2,
-            AddressClass::C => 3,
-            AddressClass::D | AddressClass::E => 4,
-            AddressClass::ZERO => 0,
-            AddressClass::BROADCAST => 0
+            AddressClassV4::A => 1,
+            AddressClassV4::B => 2,
+            AddressClassV4::C => 3,
+            AddressClassV4::D | AddressClassV4::E => 4,
+            AddressClassV4::ZERO => 0,
+            AddressClassV4::BROADCAST => 0
         }
     }
 }
 
-impl Display for AddressClass {
+impl Display for AddressClassV4 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            AddressClass::A => write!(f, "Class A"),
-            AddressClass::B => write!(f, "Class B"),
-            AddressClass::C => write!(f, "Class C"),
-            AddressClass::D => write!(f, "Class D"),
-            AddressClass::E => write!(f, "Class E"),
-            AddressClass::ZERO => write!(f, "Zero address"),
-            AddressClass::BROADCAST => write!(f, "Broadcast address")
+            AddressClassV4::A => write!(f, "Class A"),
+            AddressClassV4::B => write!(f, "Class B"),
+            AddressClassV4::C => write!(f, "Class C"),
+            AddressClassV4::D => write!(f, "Class D"),
+            AddressClassV4::E => write!(f, "Class E"),
+            AddressClassV4::ZERO => write!(f, "Zero address"),
+            AddressClassV4::BROADCAST => write!(f, "Broadcast address")
         }
     }
 }
@@ -317,6 +320,14 @@ impl IPv4Network {
         IPv4Address::from_int(self.broadcast.address - 1)
     }
 
+    fn get_usable_hosts(&self) -> u32 {
+        match self.mask.to_cidr() {
+            32 => 1,
+            31 => 2,
+            _ => 2u32.pow(32 - self.mask.to_cidr() as u32) - 2
+        }
+    }
+
     #[allow(dead_code)]
     fn contains(&self, ip: IPv4Address) -> bool {
         return self.network.address <= ip.address && ip.address <= self.broadcast.address;
@@ -337,7 +348,7 @@ impl Display for IPv4Network {
     }
 }
 
-fn print_binary_colored(ip: IPv4Address, position: u8) -> String {
+fn print_ipv4_binary_colored(ip: IPv4Address, position: u8) -> String {
     let tmp = format!("{:032b}", ip.address);
 
     let mut class_part = String::new();
@@ -374,7 +385,7 @@ fn print_binary_colored(ip: IPv4Address, position: u8) -> String {
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[38;5;214m{}\x1b[0m", class_part, network_part, host_part)
 }
 
-fn print_results(net: &IPv4Network) {
+fn print_ipv4_results(net: &IPv4Network) {
     let tw = 71;
 
     println!("┌{:─^1$}┐", "", tw - 2);
@@ -386,7 +397,7 @@ fn print_results(net: &IPv4Network) {
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
              format!(" ░ Mask:       {:18}", net.mask),
-             format!(" ░ Wildcard:   {:18}", net.mask),
+             format!(" ░ Wildcard:   {:18}", net.mask.to_wildcard()),
              (tw - 2) / 2
     );
     println!("│{0:<2$} {1:<2$}│",
@@ -400,6 +411,8 @@ fn print_results(net: &IPv4Network) {
              (tw - 2) / 2
     );
     println!("│{:^1$}│", "", tw - 2);
+    println!("│{:<1$}│", format!("\x1b[1m ░ Max hosts:  {}\x1b[0m", net.get_usable_hosts()), tw + 6);
+    println!("│{:^1$}│", "", tw - 2);
     if net.is_host() {
         println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network represents a host (/32 route).\x1b[0m", tw + 13);
     }
@@ -407,19 +420,19 @@ fn print_results(net: &IPv4Network) {
         println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 13);
     }
 
-    for note in AddressClass::get_additional_info(net.ip) {
+    for note in AddressClassV4::get_additional_info(net.ip) {
         println!("│{:<1$}│", format!("\x1b[38;5;198m ░ Note: {}.\x1b[0m", note), tw + 13);
     }
 
     println!("├{:─^1$}┤", "", tw - 2);
-    println!("│{:<1$}│", "\x1b[1m ▒ Binary address representation:\x1b[0m", tw + 6);
+    println!("│{:<1$}│", "\x1b[1m ░ Binary address representation:\x1b[0m", tw + 6);
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{:<1$}│", "\x1b[38;5;198m █▒ Class part \x1b[38;5;38m █▒ Network part \x1b[38;5;214m █▒ Hosts part \x1b[0m", tw + 34);
+    println!("│{:<1$}│", "\x1b[38;5;198m █░ Class part \x1b[38;5;38m █░ Network part \x1b[38;5;214m █░ Hosts part \x1b[0m", tw + 34);
     println!("│{:^1$}│", "", tw - 2);
     println!("│{:<1$}│", " 01            08 09            16 17            24 25            32", tw - 2);
     println!("│{:<1$}│", "\x1b[38;5;244m ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄  \x1b[0m", tw + 13);
     println!("│{:<1$}│", format!("{:>80}",
-                                 print_binary_colored(net.ip, net.mask.to_cidr())),
+                                 print_ipv4_binary_colored(net.ip, net.mask.to_cidr())),
              tw + 34);
     //println!("│{:<1$}│", " ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤", tw - 2);
     println!("│{:<1$}│", " └── OCTET  1 ──┘ └── OCTET  2 ──┘ └── OCTET  3 ──┘ └── OCTET  4 ──┘", tw - 2);
@@ -428,7 +441,7 @@ fn print_results(net: &IPv4Network) {
 }
 
 fn main() {
-    let ip_string = String::from("10.64.0.0 255.255.255.254");
+    let ip_string = String::from("100.64.0.0/31");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
@@ -451,7 +464,7 @@ fn main() {
     }
 
     let net = IPv4Network::new(ip, mask);
-    print_results(&net);
+    print_ipv4_results(&net);
 }
 
 #[cfg(test)]
@@ -460,18 +473,18 @@ mod tests {
 
     #[test]
     fn test_ip_class() {
-        assert_eq!(AddressClass::get(IPv4Address::from_string("0.0.0.0").address), AddressClass::ZERO);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("0.0.0.1").address), AddressClass::A);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("127.255.255.255").address), AddressClass::A);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("128.0.0.0").address), AddressClass::B);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("191.255.255.255").address), AddressClass::B);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("192.0.0.0").address), AddressClass::C);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("223.255.255.255").address), AddressClass::C);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("224.0.0.0").address), AddressClass::D);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("239.255.255.255").address), AddressClass::D);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("240.0.0.0").address), AddressClass::E);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("255.255.255.254").address), AddressClass::E);
-        assert_eq!(AddressClass::get(IPv4Address::from_string("255.255.255.255").address), AddressClass::BROADCAST);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("0.0.0.0").address), AddressClassV4::ZERO);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("0.0.0.1").address), AddressClassV4::A);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("127.255.255.255").address), AddressClassV4::A);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("128.0.0.0").address), AddressClassV4::B);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("191.255.255.255").address), AddressClassV4::B);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("192.0.0.0").address), AddressClassV4::C);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("223.255.255.255").address), AddressClassV4::C);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("224.0.0.0").address), AddressClassV4::D);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("239.255.255.255").address), AddressClassV4::D);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("240.0.0.0").address), AddressClassV4::E);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("255.255.255.254").address), AddressClassV4::E);
+        assert_eq!(AddressClassV4::get(IPv4Address::from_string("255.255.255.255").address), AddressClassV4::BROADCAST);
     }
 
     #[test]
