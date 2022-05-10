@@ -243,6 +243,17 @@ impl AddressClass {
 
         info_array
     }
+
+    fn get_class_no_bits(&self) -> u8 {
+        match self {
+            AddressClass::A => 1,
+            AddressClass::B => 2,
+            AddressClass::C => 3,
+            AddressClass::D | AddressClass::E => 4,
+            AddressClass::ZERO => 0,
+            AddressClass::BROADCAST => 0
+        }
+    }
 }
 
 impl Display for AddressClass {
@@ -326,14 +337,20 @@ impl Display for IPv4Network {
     }
 }
 
-fn print_binary_colored(address: u32, position: u8) -> String {
-    let tmp = format!("{:032b}", address);
+fn print_binary_colored(ip: IPv4Address, position: u8) -> String {
+    let tmp = format!("{:032b}", ip.address);
+
+    let mut class_part = String::new();
     let mut network_part = String::new();
     let mut host_part = String::new();
 
-    let mut ptr = &mut network_part;
+    let mut ptr = &mut class_part;
 
     for (i, char) in tmp.chars().enumerate() {
+
+        if i == ip.class.get_class_no_bits() as usize {
+            ptr = &mut network_part;
+        }
         if i == position as usize {
             ptr = &mut host_part;
         }
@@ -354,7 +371,7 @@ fn print_binary_colored(address: u32, position: u8) -> String {
 
     //let (network_part, host_part) = replaced.split_at(position as usize);
 
-    format!("\x1b[94m{}\x1b[38;5;214m{}\x1b[0m", network_part, host_part)
+    format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[38;5;214m{}\x1b[0m", class_part, network_part, host_part)
 }
 
 fn print_results(net: &IPv4Network) {
@@ -362,9 +379,9 @@ fn print_results(net: &IPv4Network) {
 
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
-             format!("\x1b[1;92m ▒ Address:    {}/{}\x1b[0m", net.ip, net.mask.to_cidr()),
-             format!("\x1b[1;96m ░ Class:      {:18}\x1b[0m", net.ip.class),
-             (tw + 20) / 2
+             format!("\x1b[1;38;5;10m █ Address:    {}/{}\x1b[0m", net.ip, net.mask.to_cidr()),
+             format!("\x1b[0;38;5;38m ░ Class:      {:18}\x1b[0m", net.ip.class),
+             (tw + 29) / 2
     );
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
@@ -384,26 +401,26 @@ fn print_results(net: &IPv4Network) {
     );
     println!("│{:^1$}│", "", tw - 2);
     if net.is_host() {
-        println!("│{:<1$}│", "\x1b[93m ░ Note: Network represents a host (/32 route).\x1b[0m", tw + 7);
+        println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network represents a host (/32 route).\x1b[0m", tw + 13);
     }
     if net.is_p2p() {
-        println!("│{:<1$}│", "\x1b[93m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 7);
+        println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 13);
     }
 
     for note in AddressClass::get_additional_info(net.ip) {
-        println!("│{:<1$}│", format!("\x1b[93m ░ Note: {}.\x1b[0m", note), tw + 7);
+        println!("│{:<1$}│", format!("\x1b[38;5;198m ░ Note: {}.\x1b[0m", note), tw + 13);
     }
 
     println!("├{:─^1$}┤", "", tw - 2);
     println!("│{:<1$}│", "\x1b[1m ▒ Binary address representation:\x1b[0m", tw + 6);
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{:<1$}│", "\x1b[94m █▒ Network part \x1b[38;5;214m █▒ Hosts part \x1b[0m", tw + 18);
+    println!("│{:<1$}│", "\x1b[38;5;198m █▒ Class part \x1b[38;5;38m █▒ Network part \x1b[38;5;214m █▒ Hosts part \x1b[0m", tw + 34);
     println!("│{:^1$}│", "", tw - 2);
     println!("│{:<1$}│", " 01            08 09            16 17            24 25            32", tw - 2);
     println!("│{:<1$}│", "\x1b[38;5;244m ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄  \x1b[0m", tw + 13);
     println!("│{:<1$}│", format!("{:>80}",
-                                 print_binary_colored(net.ip.address, net.mask.to_cidr())),
-             tw + 18);
+                                 print_binary_colored(net.ip, net.mask.to_cidr())),
+             tw + 34);
     //println!("│{:<1$}│", " ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤", tw - 2);
     println!("│{:<1$}│", " └── OCTET  1 ──┘ └── OCTET  2 ──┘ └── OCTET  3 ──┘ └── OCTET  4 ──┘", tw - 2);
     println!("│{:^1$}│", "", tw - 2);
@@ -411,7 +428,7 @@ fn print_results(net: &IPv4Network) {
 }
 
 fn main() {
-    let ip_string = String::from("10.64.0.0/24");
+    let ip_string = String::from("10.64.0.0 255.255.255.254");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
