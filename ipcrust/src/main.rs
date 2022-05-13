@@ -1,8 +1,6 @@
-extern crate core;
-
 use std::fmt::{Display, Formatter};
 //use std::io;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 
 ///
 /// Convert integer representation of 32bit number to dotted decimal.
@@ -98,7 +96,6 @@ struct IPv4Mask {
 }
 
 impl IPv4Address {
-
     fn from_string(address_string: &str) -> IPv4Address {
         let int_value = dotted_decimal_to_int(address_string);
         let class = AddressClassV4::get(int_value);
@@ -215,8 +212,7 @@ impl AddressClassV4 {
     }
 
     fn get_additional_info(address: IPv4Address) -> Vec<String> {
-
-        let n = | network: &str, cidr: u8 | IPv4Network::from_string_cidr(network, cidr);
+        let n = |network: &str, cidr: u8| IPv4Network::from_string_cidr(network, cidr);
         let mut info_array: Vec<String> = vec!();
 
         let address_info_map: [(IPv4Network, &str); 16] = [
@@ -348,6 +344,159 @@ impl Display for IPv4Network {
     }
 }
 
+enum IPv6AddressFormat {
+    FormatShort = 1,
+    FormatCondensed = 2,
+    FormatFull = 3
+}
+
+#[derive(Copy, Clone)]
+struct IPv6Address {
+    address: u128,
+}
+
+impl IPv6Address {
+
+
+
+    fn from_string(input: &str) -> IPv6Address {
+        let mut ipv6_num = 0u128;
+        let mut i_parts: Vec<&str> = Vec::new();
+
+        let parts = &input.split("::").collect::<Vec<&str>>()[..];
+
+        match parts.len() {
+            // No double semicolon compression
+            1 => {
+                i_parts = input.split(":").collect::<Vec<&str>>();
+            }
+            // Double semicolon compression
+            // Left and right parts
+            2 => {
+
+                let mut part_1: Vec<&str> = Vec::new();
+                let mut part_2: Vec<&str> = Vec::new();
+
+                match parts {
+                    ["", b] => {
+                        part_1 = Vec::new();
+                        for _ in 0..(8 - part_2.len() - 1) {
+                            part_1.push("0");
+                        }
+                        part_2 = b.split(":").collect::<Vec<&str>>();
+                    }
+                    [a, ""] => {
+                        part_1 = a.split(":").collect::<Vec<&str>>();
+                        part_2 = Vec::new();
+                        for _ in 0..(8 - part_1.len()) {
+                            part_2.push("0");
+                        }
+                    }
+                    _ => {
+                        part_1 = parts[0].split(":").collect::<Vec<&str>>();
+                        part_2 = parts[1].split(":").collect::<Vec<&str>>();
+                        for _ in 0..(8 - (part_1.len() + part_2.len())) {
+                            part_1.push("0");
+                        }
+                    }
+                }
+
+                i_parts.append(&mut part_1);
+                i_parts.append(&mut part_2);
+            }
+
+            _ => panic!("Invalid IPv6 address format")
+        }
+
+        let ipv6_parts = i_parts.iter().map(
+            |x| u32::from_str_radix(x, 16).unwrap()
+        ).collect::<Vec<u32>>();
+
+        if ipv6_parts.len() == 8 {
+            for i in 1..=8 {
+                ipv6_num += (ipv6_parts[i-1] as u128) << 128-(i*16);
+            }
+        }
+
+        IPv6Address { address: ipv6_num }
+    }
+
+    fn to_string(&self, condensed: IPv6AddressFormat) -> String {
+
+        let mut hex_parts: [u32; 8] = [0; 8];
+        let mut string_array: [String; 8] = Default::default();
+        let string: String;
+
+        for i in 1..=8 {
+            hex_parts[i-1] = (self.address >> (128 - i*16) & 0xffff) as u32;
+        }
+
+        println!("{:?}", hex_parts);
+
+        match condensed {
+            IPv6AddressFormat::FormatShort => {
+
+                let mut p: (usize, usize) = (0, 0);
+                let mut p_tmp: (usize, usize) = (0, 0);
+
+                println!("{:?}", hex_parts);
+
+                for i in 0..8 {
+                    if hex_parts[i] == 0 {
+                        p_tmp.0 = i;
+                        p_tmp.1 += 1;
+                    }else {
+                        if p_tmp.1 > p.1 {
+                            p = p_tmp;
+                            p_tmp.1 = 0;
+                            p_tmp.0 = 0;
+                        }
+                    }
+                }
+
+                if p_tmp.1 > p.1 {
+                    p = p_tmp;
+                }
+
+                let start = p.0 - p.1 + 1;
+                let end = p.0 + 1;
+
+                let p1 = &hex_parts[0..start];
+                let p2 = &hex_parts[end..];
+
+                let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
+                let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
+
+                string = format!("{}::{}", s1.join(":"), s2.join(":"));
+
+            },
+            IPv6AddressFormat::FormatCondensed => {
+                string_array = hex_parts.map(|h| format!("{:x}", h));
+                string = string_array.join(":");
+            },
+            IPv6AddressFormat::FormatFull => {
+                string_array = hex_parts.map(|h| format!("{:04x}", h));
+                string = string_array.join(":");
+            }
+        }
+
+        format!("{}", string)
+    }
+}
+
+impl Display for IPv6Address {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string(IPv6AddressFormat::FormatFull))
+    }
+}
+
+struct IPv6Network {
+    ip: IPv6Address,
+    mask: u8,
+    network: IPv6Address,
+    broadcast: IPv6Address,
+}
+
 fn print_ipv4_binary_colored(ip: IPv4Address, position: u8) -> String {
     let tmp = format!("{:032b}", ip.address);
 
@@ -358,7 +507,6 @@ fn print_ipv4_binary_colored(ip: IPv4Address, position: u8) -> String {
     let mut ptr = &mut class_part;
 
     for (i, char) in tmp.chars().enumerate() {
-
         if i == ip.class.get_class_no_bits() as usize {
             ptr = &mut network_part;
         }
@@ -372,7 +520,7 @@ fn print_ipv4_binary_colored(ip: IPv4Address, position: u8) -> String {
             '1' => {
                 ptr.push('█');
                 ptr.push('█');
-            },
+            }
             _ => {
                 ptr.push('░');
                 ptr.push('░');
@@ -441,30 +589,48 @@ fn print_ipv4_results(net: &IPv4Network) {
 }
 
 fn main() {
-    let ip_string = String::from("100.64.0.0/31");
+    let ip_string = String::from("1:0:0:4::8/29");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
-    let ip: IPv4Address;
-    let mask: IPv4Mask;
-
     let ip_part = parts[0];
-    ip = IPv4Address::from_string(ip_part);
+    let mask_part = parts[1];
 
-    match parts.len() {
-        1 => mask = IPv4Mask::from_cidr(ip.get_default_class_cidr()),
-        2 => mask = {
-            let mask_part = parts[1];
-            match mask_part.parse::<u8>() {
-                Ok(v) => IPv4Mask::from_cidr(v),
-                Err(_) => IPv4Mask::from_dotted_decimal(mask_part)
+    let regex_seg = RegexSet::new(&[
+        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$",            // Regex #0
+        r"^([A-Fa-f0-9:]{1,4}:+)+([A-Fa-f0-9]{1,4})?$"      // Regex #1
+    ]).unwrap();
+
+    match regex_seg.matches(ip_part).into_iter().collect::<Vec<_>>().as_slice() {
+        [0] => {
+            let ip: IPv4Address;
+            let mask: IPv4Mask;
+
+            ip = IPv4Address::from_string(ip_part);
+
+            match parts.len() {
+                1 => mask = IPv4Mask::from_cidr(ip.get_default_class_cidr()),
+                2 => mask = {
+                    match mask_part.parse::<u8>() {
+                        Ok(v) => IPv4Mask::from_cidr(v),
+                        Err(_) => IPv4Mask::from_dotted_decimal(mask_part)
+                    }
+                },
+                _ => panic!("Invalid input format.")
             }
-        },
-        _ => panic!("Invalid input format.")
-    }
 
-    let net = IPv4Network::new(ip, mask);
-    print_ipv4_results(&net);
+            let net = IPv4Network::new(ip, mask);
+            print_ipv4_results(&net);
+        }
+        [1] => {
+            let ip: IPv6Address;
+            let net: IPv6Network;
+
+            ip = IPv6Address::from_string(ip_part);
+            println!("{}", ip);
+        }
+        _ => panic!("Invalid format")
+    }
 }
 
 #[cfg(test)]
