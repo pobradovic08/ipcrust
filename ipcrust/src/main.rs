@@ -418,7 +418,7 @@ impl IPv6Address {
         IPv6Address { address: ipv6_num }
     }
 
-    fn to_string(&self, condensed: IPv6AddressFormat) -> String {
+    fn to_string(&self, format: IPv6AddressFormat) -> String {
 
         let mut hex_parts: [u32; 8] = [0; 8];
         let string: String;
@@ -427,7 +427,7 @@ impl IPv6Address {
             hex_parts[i-1] = (self.address >> (128 - i*16) & 0xffff) as u32;
         }
 
-        match condensed {
+        match format {
             IPv6AddressFormat::FormatShort => {
 
                 let mut p: (usize, usize) = (0, 0);
@@ -450,7 +450,7 @@ impl IPv6Address {
                     p = p_tmp;
                 }
 
-                let start = p.0 - p.1 + 1;
+                let start = 1 + p.0 - p.1;
                 let end = p.0 + 1;
 
                 let p1 = &hex_parts[0..start];
@@ -474,11 +474,61 @@ impl IPv6Address {
 
         format!("{}", string)
     }
+
+    fn get_eui64_num(&self) -> u64 {
+        self.address as u64
+    }
+
+    fn get_eui64_string(&self) -> String {
+        let eui64_num = self.get_eui64_num();
+
+        let mut hex_parts: [u32; 4] = [0; 4];
+
+        for i in 1..=4 {
+            hex_parts[i-1] = (eui64_num >> (64 - i*16) & 0xffff) as u32;
+        }
+
+        let string_array = hex_parts.map(|h| format!("{:04x}", h));
+        string_array.join(":")
+    }
+
+    ///
+    /// 0000001000000000000000001111111111111110000000000000000000000000
+    /// 0000001010111011110011001111111111111110110111010001000100100010
+    /// 0000000010111011110011001111111111111110110111010001000100100010
+    ///
+    fn is_eui64(&self) -> bool {
+        let eui64_mask: u64 = 0x20000fffe000000;
+        self.get_eui64_num() & eui64_mask == eui64_mask
+    }
+
+    fn get_eui48_num(&self) -> u64 {
+        let eui48_flip_mask = 0x200000000000000;
+        let flipped = self.get_eui64_num() ^ eui48_flip_mask;
+
+        let part_1 = (flipped >> 16) & 0xffffff000000;
+        let part_2 = flipped & 0xffffff;
+
+        part_1 + part_2
+    }
+
+    fn get_eui48_string(&self) -> String {
+
+        let eui48_num = self.get_eui48_num();
+
+        let mut hex_parts: [u32; 6] = [0; 6];
+        for i in 1..=6 {
+            hex_parts[i-1] = (eui48_num >> (48 - i*8) & 0xff) as u32;
+        }
+
+        let string_array = hex_parts.map(|h| format!("{:02x}", h));
+        string_array.join(":")
+    }
 }
 
 impl Display for IPv6Address {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string(IPv6AddressFormat::FormatShort))
+        write!(f, "{}", self.to_string(IPv6AddressFormat::FormatFull))
     }
 }
 
@@ -499,13 +549,33 @@ impl IPv6Network {
             _ => mask = u128::MAX << (128-cidr)
         }
 
-        IPv6Network{ ip, mask, cidr}
+        IPv6Network{ip: IPv6Address{address: ip.address}, mask, cidr}
+    }
+
+    fn get_first_address(&self) -> IPv6Address {
+        return IPv6Address{address: (self.ip.address & self.mask)}
+    }
+
+    fn get_last_address(&self) -> IPv6Address {
+        return IPv6Address{address: self.ip.address | (!self.mask)}
+    }
+
+    fn print_short(&self) -> String {
+        format!("{}/{}", self.get_first_address().to_string(IPv6AddressFormat::FormatShort), self.cidr)
+    }
+
+    fn print_condensed(&self) -> String {
+        format!("{}/{}", self.get_first_address().to_string(IPv6AddressFormat::FormatCondensed), self.cidr)
+    }
+
+    fn print_full(&self) -> String {
+        format!("{}/{}", self.get_first_address().to_string(IPv6AddressFormat::FormatFull), self.cidr)
     }
 }
 
 impl Display for IPv6Network {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.ip, self.cidr)
+        write!(f, "{}", self.print_short())
     }
 }
 
@@ -600,12 +670,42 @@ fn print_ipv4_results(net: &IPv4Network) {
     println!("└{:─^1$}┘", "", tw - 2);
 }
 
+fn print_ipv6_bar_colored(cidr: u8) -> String {
+    let position = cidr as usize / 4;
+    let padding = position / 4;
+    let mut bars = "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀".chars().collect::<Vec<char>>();
+    let part_1 = &bars[..(position+padding)].iter().collect::<String>();
+    let part_2 = &bars[(position+padding)..].iter().collect::<String>();
+    format!("\x1b[38;5;92m{}\x1b[38;5;214m{}\x1b[0m", part_1, part_2)
+}
+
 fn print_ipv6_results(net: &IPv6Network) {
-    println!("{}", net)
+    let tw = 71;
+    println!("┌{:─^1$}┐", "", tw - 2);
+    println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{0:<1$}│", format!(" ░ Network:    {}", net.print_short()), tw - 2);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{0:<1$}│", format!(" ░ First IPv6: {}", net.get_first_address()), tw - 2);
+    println!("│{0:<1$}│", format!(" ░ Last IPv6:  {}", net.get_last_address()), tw - 2);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{0:<1$}│", format!(" ░ EUI-64:     {}", net.ip.get_eui64_string()), tw - 2);
+    println!("│{0:<1$}│", format!(" ░ EUI-48:     {}", net.ip.get_eui48_string()), tw - 2);
+    println!("├{:─^1$}┤", "", tw - 2);
+    println!("│{:<1$}│", "\x1b[38;5;92m ■ Network part \x1b[38;5;214m ■ Hosts part \x1b[0m", tw + 23);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("│{:^1$}│", "\x1b[38;5;38mSubnet ID\x1b[0m", tw + 12);
+    println!("│{:^1$}│", "\x1b[38;5;198m Routing prefix  \x1b[38;5;38m│  \x1b[38;5;214m Interface identifier\x1b[0m", tw + 34);
+    println!("│{:^1$}│", "\x1b[38;5;198m ┌────────────┐ \x1b[38;5;38m┌┴─┐ \x1b[38;5;214m┌─────────────────┐\x1b[0m", tw + 34);
+    println!("│{0:^1$}│", format!("\x1b[1m{}\x1b[0m", net.ip), tw + 6);
+    println!("│{:^1$}│", print_ipv6_bar_colored(net.cidr), tw + 23);
+    println!("│{:^1$}│", "", tw - 2);
+    println!("└{:─^1$}┘", "", tw - 2);
+
 }
 
 fn main() {
-    let ip_string = String::from("1:0:0:4::8/32");
+    let ip_string = String::from("fe80::02BB:CCFF:FEDD:1122/64");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
