@@ -236,10 +236,12 @@ impl Network {
         format!("{}/{}", self.get_first_address().to_string(AddressFormat::FormatShort), self.cidr)
     }
 
+    #[allow(unused)]
     pub fn print_condensed(&self) -> String {
         format!("{}/{}", self.get_first_address().to_string(AddressFormat::FormatCondensed), self.cidr)
     }
 
+    #[allow(unused)]
     pub fn print_full(&self) -> String {
         format!("{}/{}", self.get_first_address().to_string(AddressFormat::FormatFull), self.cidr)
     }
@@ -254,10 +256,19 @@ impl Display for Network {
 fn print_bar_colored(cidr: u8) -> String {
     let position = cidr as usize / 4;
     let padding = position / 4;
-    let bars = "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀".chars().collect::<Vec<char>>();
+    let bars = "▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄".chars().collect::<Vec<char>>();
     let part_1 = &bars[..(position + padding)].iter().collect::<String>();
     let part_2 = &bars[(position + padding)..].iter().collect::<String>();
     format!("\x1b[38;5;92m{}\x1b[38;5;214m{}\x1b[0m", part_1, part_2)
+}
+
+fn print_bar_ipv6_parts(cidr: u8) -> String {
+    let position = cidr as usize / 4;
+    let padding = position / 4;
+    let bars = "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ".chars().collect::<Vec<char>>();
+    let part_1 = &bars[..(position + padding)].iter().collect::<String>();
+    let part_2 = &bars[(position + padding)..].iter().collect::<String>();
+    format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[0m▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀", part_1, part_2)
 }
 
 pub fn print_results(net: &Network) {
@@ -265,7 +276,7 @@ pub fn print_results(net: &Network) {
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{0:<1$}│", format!(" ░ Network:    {}", net.print_short()), tw - 2);
+    println!("│{0:<1$}│", format!(" ░ Network:    {}", net), tw - 2);
     println!("│{0:<1$}│", format!(" ░ First IPv6: {}", net.get_first_address()), tw - 2);
     println!("│{0:<1$}│", format!(" ░ Last IPv6:  {}", net.get_last_address()), tw - 2);
     println!("│{:^1$}│", "", tw - 2);
@@ -280,13 +291,14 @@ pub fn print_results(net: &Network) {
     //     println!("│{:<1$}│", format!("\x1b[38;5;198m ░ Note: {}.\x1b[0m", note), tw + 13);
     // }
 
-    println!("│{:<1$}│", "\x1b[38;5;92m ■ Network part \x1b[38;5;214m ■ Hosts part \x1b[0m", tw + 23);
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{:^1$}│", "\x1b[38;5;38mSubnet ID\x1b[0m", tw + 12);
-    println!("│{:^1$}│", "\x1b[38;5;198m Routing prefix  \x1b[38;5;38m│  \x1b[38;5;214m Interface identifier\x1b[0m", tw + 34);
-    println!("│{:^1$}│", "\x1b[38;5;198m ┌────────────┐ \x1b[38;5;38m┌┴─┐ \x1b[38;5;214m┌─────────────────┐\x1b[0m", tw + 34);
+    if net.cidr <= 64 {
+        println!("│{:^1$}│", "\x1b[38;5;198m Prefix \x1b[38;5;38m Subnet ID\x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 31);
+        println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+    }
     println!("│{0:^1$}│", format!("\x1b[1m{}\x1b[0m", net.ip), tw + 6);
     println!("│{:^1$}│", print_bar_colored(net.cidr), tw + 23);
+    println!("│{:^1$}│", "\x1b[38;5;92m Network part                \x1b[38;5;214m Hosts part \x1b[0m", tw + 23);
     println!("│{:^1$}│", "", tw - 2);
     println!("└{:─^1$}┘", "", tw - 2);
 }
