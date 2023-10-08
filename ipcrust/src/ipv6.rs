@@ -11,6 +11,7 @@ pub enum AddressFormat {
 #[derive(Copy, Clone)]
 pub struct Address {
     address: u128,
+    class: AddressClassV6
 }
 
 impl Address {
@@ -21,23 +22,29 @@ impl Address {
         let parts = &input.split("::").collect::<Vec<&str>>()[..];
 
         match parts.len() {
-            // No double semicolon compression
+            // No double colon compression
             1 => {
                 i_parts = input.split(":").collect::<Vec<&str>>();
             }
-            // Double semicolon compression
+            // Double colon compression
             // Left and right parts
             2 => {
                 let mut part_1: Vec<&str> = Vec::new();
                 let mut part_2: Vec<&str> = Vec::new();
 
                 match parts {
+                    // Zero address (::)
+                    ["", ""] => {
+                        return Address { address: 0, class: AddressClassV6::ZERO };
+                    }
+                    // Double colon in front
                     ["", b] => {
                         for _ in 0..(8 - part_2.len() - 1) {
                             part_1.push("0");
                         }
                         part_2 = b.split(":").collect::<Vec<&str>>();
                     }
+                    // Double colon in the end
                     [a, ""] => {
                         part_1 = a.split(":").collect::<Vec<&str>>();
                         for _ in 0..(8 - part_1.len()) {
@@ -70,7 +77,7 @@ impl Address {
             }
         }
 
-        Address { address: ipv6_num }
+        Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) }
     }
 
     pub fn to_string(&self, format: AddressFormat) -> String {
@@ -112,7 +119,15 @@ impl Address {
                 let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
                 let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
 
-                string = format!("{}::{}", s1.join(":"), s2.join(":"));
+                // If there are 8 parts use colon instead of double colon
+                let separator: &str = if s1.len() + s2.len() == 8 {
+                    ":"
+                } else {
+                    "::"
+                };
+
+                // Join two parts
+                string = format!("{}{}{}", s1.join(":"), separator, s2.join(":"));
             }
             AddressFormat::FormatCondensed => {
                 let string_array = hex_parts.map(|h| format!("{:x}", h));
@@ -221,15 +236,21 @@ impl Network {
             _ => mask = u128::MAX << (128 - cidr)
         }
 
-        Network { ip: Address { address: ip.address }, mask, cidr }
+        Network {
+            ip: Address { address: ip.address, class: AddressClassV6::get(ip.address) },
+            mask,
+            cidr
+        }
     }
 
     pub fn get_first_address(&self) -> Address {
-        return Address { address: (self.ip.address & self.mask) };
+        let ipv6_num: u128 = self.ip.address & self.mask;
+        return Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
     }
 
     pub fn get_last_address(&self) -> Address {
-        return Address { address: self.ip.address | (!self.mask) };
+        let ipv6_num: u128 = self.ip.address | (!self.mask);
+        return Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
     }
 
     #[allow(dead_code)]
@@ -258,16 +279,28 @@ impl Display for Network {
     }
 }
 
-pub enum AddressClassV6 { UNICAST, MULTICAST }
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum AddressClassV6 { ZERO, UNICAST, MULTICAST }
 
 impl AddressClassV6 {
+
+    fn get(ip: u128) -> AddressClassV6 {
+        return if ip == 0 {
+            AddressClassV6::ZERO
+        } else if (ip >> 120) == 0xff {
+            AddressClassV6::MULTICAST
+        } else {
+            AddressClassV6::UNICAST
+        };
+    }
+
     fn get_additional_info(address: Address) -> Vec<String> {
         let n = |network: &str, cidr: u8| Network::new(Address::from_string(network), cidr);
         let mut info_array: Vec<String> = vec!();
 
-        let address_info_map: [(Network, &str); 19] = [
+        let address_info_map: [(Network, &str); 20] = [
             (n("::1", 128), "Loopback Address - RFC4291"),
-            //(n("::", 128), "Unspecified Address - RFC4291"),
+            (n("::", 128), "Unspecified Address - RFC4291"),
             (n("::ffff:0:0", 96), "IPv4-mapped Address - RFC4291"),
             (n("64:ff9b::", 96), "IPv4-IPv6 Translat. - RFC6052"),
             (n("64:ff9b:1::", 48), "IPv4-IPv6 Translat. - RFC8215"),
@@ -298,6 +331,16 @@ impl AddressClassV6 {
     }
 }
 
+impl Display for AddressClassV6 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressClassV6::ZERO => write!(f, "Unspecified IPv6 address"),
+            AddressClassV6::MULTICAST => write!(f, "Multicast IPv6 address"),
+            AddressClassV6::UNICAST => write!(f, "Unicast IPv6 address")
+        }
+    }
+}
+
 fn print_bar_colored(cidr: u8) -> String {
     let position = cidr as usize / 4;
     let padding = position / 4;
@@ -320,6 +363,7 @@ pub fn print_results(net: &Network) {
     let tw = 71;
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
+    println!("│{0:<1$}│", format!(" ░ Type:       {}", net.ip.class), tw - 2);
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<1$}│", format!(" ░ Network:    {}", net), tw - 2);
     println!("│{0:<1$}│", format!(" ░ First IPv6: {}", net.get_first_address()), tw - 2);
@@ -354,4 +398,21 @@ pub fn print_results(net: &Network) {
         println!("│{:^1$}│", "", tw - 2);
     }
     println!("└{:─^1$}┘", "", tw - 2);
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ipv6_class(){
+
+        let n = | address: &str | AddressClassV6::get(Address::from_string(address).address);
+
+        assert_eq!(n("::"), AddressClassV6::ZERO);
+        assert_eq!(n("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), AddressClassV6::UNICAST);
+        assert_eq!(n("ff00:0000:0000:0000:0000:0000:0000:0000"), AddressClassV6::MULTICAST);
+        assert_eq!(n("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), AddressClassV6::MULTICAST);
+    }
 }

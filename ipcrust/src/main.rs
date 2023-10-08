@@ -25,7 +25,7 @@ impl IpAddressVersion {
 }
 
 fn main() {
-    let ip_string = String::from("fe80::02BB:CCFF:FEDD:1123/32");
+    let ip_string = String::from("feff::1:1:1:1:1/64");
 
     let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
 
