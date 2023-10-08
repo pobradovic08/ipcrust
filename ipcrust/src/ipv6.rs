@@ -9,13 +9,13 @@ pub enum AddressFormat {
 }
 
 #[derive(Copy, Clone)]
-pub struct Address {
+pub struct AddressV6 {
     address: u128,
     class: AddressClassV6
 }
 
-impl Address {
-    pub fn from_string(input: &str) -> Address {
+impl AddressV6 {
+    pub fn from_string(input: &str) -> AddressV6 {
         let mut ipv6_num = 0u128;
         let mut i_parts: Vec<&str> = Vec::new();
 
@@ -35,7 +35,7 @@ impl Address {
                 match parts {
                     // Zero address (::)
                     ["", ""] => {
-                        return Address { address: 0, class: AddressClassV6::ZERO };
+                        return AddressV6 { address: 0, class: AddressClassV6::ZERO };
                     }
                     // Double colon in front
                     ["", b] => {
@@ -77,7 +77,7 @@ impl Address {
             }
         }
 
-        Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) }
+        AddressV6 { address: ipv6_num, class: AddressClassV6::get(ipv6_num) }
     }
 
     pub fn to_string(&self, format: AddressFormat) -> String {
@@ -214,21 +214,21 @@ impl Address {
     }
 }
 
-impl Display for Address {
+impl Display for AddressV6 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string(AddressFormat::FormatFull))
     }
 }
 
 #[allow(dead_code)]
-pub struct Network {
-    ip: Address,
+pub struct NetworkV6 {
+    ip: AddressV6,
     mask: u128,
     cidr: u8,
 }
 
-impl Network {
-    pub fn new(ip: Address, cidr: u8) -> Network {
+impl NetworkV6 {
+    pub fn new(ip: AddressV6, cidr: u8) -> NetworkV6 {
         let mask: u128;
 
         match cidr {
@@ -236,25 +236,25 @@ impl Network {
             _ => mask = u128::MAX << (128 - cidr)
         }
 
-        Network {
-            ip: Address { address: ip.address, class: AddressClassV6::get(ip.address) },
+        NetworkV6 {
+            ip: AddressV6 { address: ip.address, class: AddressClassV6::get(ip.address) },
             mask,
             cidr
         }
     }
 
-    pub fn get_first_address(&self) -> Address {
+    pub fn get_first_address(&self) -> AddressV6 {
         let ipv6_num: u128 = self.ip.address & self.mask;
-        return Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
+        return AddressV6 { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
     }
 
-    pub fn get_last_address(&self) -> Address {
+    pub fn get_last_address(&self) -> AddressV6 {
         let ipv6_num: u128 = self.ip.address | (!self.mask);
-        return Address { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
+        return AddressV6 { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
     }
 
     #[allow(dead_code)]
-    pub fn contains(&self, ip: Address) -> bool {
+    pub fn contains(&self, ip: AddressV6) -> bool {
         return self.ip.address <= ip.address && ip.address <= self.get_last_address().address;
     }
 
@@ -273,7 +273,7 @@ impl Network {
     }
 }
 
-impl Display for Network {
+impl Display for NetworkV6 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.print_short())
     }
@@ -294,11 +294,11 @@ impl AddressClassV6 {
         };
     }
 
-    fn get_additional_info(address: Address) -> Vec<String> {
-        let n = |network: &str, cidr: u8| Network::new(Address::from_string(network), cidr);
+    fn get_additional_info(address: AddressV6) -> Vec<String> {
+        let n = |network: &str, cidr: u8| NetworkV6::new(AddressV6::from_string(network), cidr);
         let mut info_array: Vec<String> = vec!();
 
-        let address_info_map: [(Network, &str); 20] = [
+        let address_info_map: [(NetworkV6, &str); 20] = [
             (n("::1", 128), "Loopback Address - RFC4291"),
             (n("::", 128), "Unspecified Address - RFC4291"),
             (n("::ffff:0:0", 96), "IPv4-mapped Address - RFC4291"),
@@ -359,7 +359,7 @@ fn print_bar_ipv6_parts(cidr: u8) -> String {
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[0m▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀", part_1, part_2)
 }
 
-pub fn print_results(net: &Network) {
+pub fn print_results(net: &NetworkV6) {
     let tw = 71;
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_ipv6_class(){
 
-        let n = | address: &str | AddressClassV6::get(Address::from_string(address).address);
+        let n = | address: &str | AddressClassV6::get(AddressV6::from_string(address).address);
 
         assert_eq!(n("::"), AddressClassV6::ZERO);
         assert_eq!(n("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), AddressClassV6::UNICAST);

@@ -54,14 +54,14 @@ fn main() {
             ipv4::print_results(&net);
         }
         IpAddressVersion::IpV6 => {
-            let ip: ipv6::Address;
-            let net: ipv6::Network;
+            let ip: ipv6::AddressV6;
+            let net: ipv6::NetworkV6;
             let cidr: u8;
 
-            ip = ipv6::Address::from_string(ip_part);
+            ip = ipv6::AddressV6::from_string(ip_part);
             cidr = mask_part.parse::<u8>().unwrap();
 
-            net = ipv6::Network::new(ip, cidr);
+            net = ipv6::NetworkV6::new(ip, cidr);
             ipv6::print_results(&net);
         }
     }
