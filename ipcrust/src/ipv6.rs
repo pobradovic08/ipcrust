@@ -232,6 +232,11 @@ impl Network {
         return Address { address: self.ip.address | (!self.mask) };
     }
 
+    #[allow(dead_code)]
+    pub fn contains(&self, ip: Address) -> bool {
+        return self.ip.address <= ip.address && ip.address <= self.get_last_address().address;
+    }
+
     pub fn print_short(&self) -> String {
         format!("{}/{}", self.get_first_address().to_string(AddressFormat::FormatShort), self.cidr)
     }
@@ -250,6 +255,46 @@ impl Network {
 impl Display for Network {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.print_short())
+    }
+}
+
+pub enum AddressClassV6 { UNICAST, MULTICAST }
+
+impl AddressClassV6 {
+    fn get_additional_info(address: Address) -> Vec<String> {
+        let n = |network: &str, cidr: u8| Network::new(Address::from_string(network), cidr);
+        let mut info_array: Vec<String> = vec!();
+
+        let address_info_map: [(Network, &str); 19] = [
+            (n("::1", 128), "Loopback Address - RFC4291"),
+            //(n("::", 128), "Unspecified Address - RFC4291"),
+            (n("::ffff:0:0", 96), "IPv4-mapped Address - RFC4291"),
+            (n("64:ff9b::", 96), "IPv4-IPv6 Translat. - RFC6052"),
+            (n("64:ff9b:1::", 48), "IPv4-IPv6 Translat. - RFC8215"),
+            (n("100::", 64), "Discard-Only Address Block - RFC6666"),
+            (n("2001::", 23), "IETF Protocol Assignments - RFC2928"),
+            (n("2001::", 32), "TEREDO - RFC4380, RFC8190"),
+            (n("2001:1::1", 128), "Port Control Protocol Anycast - RFC7723"),
+            (n("2001:1::2", 128), "Traversal Using Relays around NAT Anycast - RFC8155"),
+            (n("2001:2::", 48), "Benchmarking - RFC5180"),
+            (n("2001:3::", 32), "AMT - RFC7450"),
+            (n("2001:4:112::", 48), "AS112v6 - RFC7535"),
+            (n("2001:20::", 28), "ORCHIDv2 - RFC7343"),
+            (n("2001:30::", 28), "Drone Remote ID Protocol Entity Tags (DETs) Prefix - RFC9374"),
+            (n("2001:db8::", 32), "Documentation - RFC3849"),
+            (n("2002::", 16), "6to4 - RFC3056"),
+            (n("2620:4f:8000::", 48), "Direct Delegation AS112 Service - RFC7534"),
+            (n("fc00::", 7), "Unique-Local - RFC4193, RFC8190"),
+            (n("fe80::", 10), "Link-Local Unicast - RFC4291"),
+        ];
+
+        for (network, note) in address_info_map {
+            if network.contains(address) {
+                info_array.push(String::from(note))
+            }
+        }
+
+        info_array
     }
 }
 
@@ -284,21 +329,29 @@ pub fn print_results(net: &Network) {
         println!("│{:<1$}│", "\x1b[1m ░ Address might be autoassigned:\x1b[0m", tw + 6);
         println!("│\x1b[0;38;5;38m{0:<1$}\x1b[0m│", format!(" ░ EUI-64:     {}", net.ip.get_eui64_string()), tw - 2);
         println!("│\x1b[0;38;5;38m{0:<1$}\x1b[0m│", format!(" ░ EUI-48:     {}", net.ip.get_eui48_string()), tw - 2);
+        println!("│{:^1$}│", "", tw - 2);
+    }
+
+    for note in AddressClassV6::get_additional_info(net.ip) {
+        println!("│{:<1$}│", format!("\x1b[38;5;198m ░ Note: {}.\x1b[0m", note), tw + 13);
+    }
+
+    if net.cidr < 128 {
         println!("├{:─^1$}┤", "", tw - 2);
-    }
+        println!("│{:^1$}│", "", tw - 2);
+        if net.cidr == 64 {
+            println!("│{:^1$}│", "\x1b[38;5;198m Prefix/Subnet    \x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 21);
+            println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+        } else if net.cidr < 64 {
+            println!("│{:^1$}│", "\x1b[38;5;198m Prefix \x1b[38;5;38m Subnet ID\x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 31);
+            println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+        }
 
-    // for note in AddressClassV6::get_additional_info(net.ip) {
-    //     println!("│{:<1$}│", format!("\x1b[38;5;198m ░ Note: {}.\x1b[0m", note), tw + 13);
-    // }
+        println!("│{0:^1$}│", format!("\x1b[1m{}\x1b[0m", net.ip), tw + 6);
 
-    println!("│{:^1$}│", "", tw - 2);
-    if net.cidr <= 64 {
-        println!("│{:^1$}│", "\x1b[38;5;198m Prefix \x1b[38;5;38m Subnet ID\x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 31);
-        println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+        println!("│{:^1$}│", print_bar_colored(net.cidr), tw + 23);
+        println!("│{:^1$}│", "\x1b[38;5;92m Network part                \x1b[38;5;214m Hosts part \x1b[0m", tw + 23);
+        println!("│{:^1$}│", "", tw - 2);
     }
-    println!("│{0:^1$}│", format!("\x1b[1m{}\x1b[0m", net.ip), tw + 6);
-    println!("│{:^1$}│", print_bar_colored(net.cidr), tw + 23);
-    println!("│{:^1$}│", "\x1b[38;5;92m Network part                \x1b[38;5;214m Hosts part \x1b[0m", tw + 23);
-    println!("│{:^1$}│", "", tw - 2);
     println!("└{:─^1$}┘", "", tw - 2);
 }
