@@ -3,6 +3,7 @@ mod ipv4;
 
 //use std::io;
 use regex::RegexSet;
+use std::env;
 
 enum IpAddressVersion {
     IpV4,
@@ -25,26 +26,48 @@ impl IpAddressVersion {
 }
 
 fn main() {
-    let ip_string = String::from("feff::1:1:1:1:1/64");
+    let args: Vec<String> = env::args().collect();
+    let mut arguments: Vec<&str> = Vec::new();
 
-    let parts: Vec<&str> = ip_string.split(|c| (c == ' ') || (c == '/')).collect();
+    match args.len() {
+        2 => {
+            let ip_str = &args[1];
+            let parts: Vec<&str> = ip_str.split(|c| c == '/').collect();
+            match parts.len() {
+                1 => {
+                    arguments.insert(0, parts[0]);
+                }
+                2 => {
+                    arguments.insert(0, parts[0]);
+                    arguments.insert(1, parts[1]);
+                }
+                _ => {
+                    panic!("Invalid input format.");
+                }
+            }
+        }
+        3 => {
+            arguments.insert(0, args[1].as_str());
+            arguments.insert(1, args[2].as_str());
+        }
+        _ => {
+            panic!("Invalid number of arguments.");
+        }
+    }
 
-    let ip_part = parts[0];
-    let mask_part = parts[1];
-
-    match IpAddressVersion::get_address_version(ip_part) {
+    match IpAddressVersion::get_address_version(arguments[0]) {
         IpAddressVersion::IpV4 => {
             let ip: ipv4::Address;
             let mask: ipv4::Mask;
 
-            ip = ipv4::Address::from_string(ip_part);
+            ip = ipv4::Address::from_string(arguments[0]);
 
-            match parts.len() {
+            match arguments.len() {
                 1 => mask = ipv4::Mask::from_cidr(ip.get_default_class_cidr()),
                 2 => mask = {
-                    match mask_part.parse::<u8>() {
+                    match arguments[1].parse::<u8>() {
                         Ok(v) => ipv4::Mask::from_cidr(v),
-                        Err(_) => ipv4::Mask::from_dotted_decimal(mask_part)
+                        Err(_) => ipv4::Mask::from_dotted_decimal(arguments[1])
                     }
                 },
                 _ => panic!("Invalid input format.")
@@ -58,8 +81,12 @@ fn main() {
             let net: ipv6::NetworkV6;
             let cidr: u8;
 
-            ip = ipv6::AddressV6::from_string(ip_part);
-            cidr = mask_part.parse::<u8>().unwrap();
+            if arguments.len() == 1 {
+                arguments.insert(1, "64");
+            }
+
+            ip = ipv6::AddressV6::from_string(arguments[0]);
+            cidr = arguments[1].parse::<u8>().unwrap();
 
             net = ipv6::NetworkV6::new(ip, cidr);
             ipv6::print_results(&net);
