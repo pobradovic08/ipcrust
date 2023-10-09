@@ -363,7 +363,7 @@ pub fn print_results(net: &NetworkV6) {
     let tw = 71;
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
-    println!("│{0:<1$}│", format!(" ░ Type:       {}", net.ip.class), tw - 2);
+    println!("│{0:<1$}│", format!("\x1b[0;38;5;38m ░ Type:       {}\x1b[0m", net.ip.class), tw + 14);
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<1$}│", format!(" ░ Network:    {}", net), tw - 2);
     println!("│{0:<1$}│", format!(" ░ First IPv6: {}", net.get_first_address()), tw - 2);
