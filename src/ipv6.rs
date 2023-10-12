@@ -11,7 +11,7 @@ pub enum AddressFormat {
 #[derive(Copy, Clone)]
 pub struct AddressV6 {
     address: u128,
-    class: AddressClassV6
+    class: AddressClassV6,
 }
 
 impl AddressV6 {
@@ -239,7 +239,7 @@ impl NetworkV6 {
         NetworkV6 {
             ip: AddressV6 { address: ip.address, class: AddressClassV6::get(ip.address) },
             mask,
-            cidr
+            cidr,
         }
     }
 
@@ -283,7 +283,6 @@ impl Display for NetworkV6 {
 pub enum AddressClassV6 { ZERO, UNICAST, MULTICAST }
 
 impl AddressClassV6 {
-
     fn get(ip: u128) -> AddressClassV6 {
         return if ip == 0 {
             AddressClassV6::ZERO
@@ -406,13 +405,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ipv6_class(){
-
-        let n = | address: &str | AddressClassV6::get(AddressV6::from_string(address).address);
+    fn test_ipv6_class() {
+        let n = |address: &str| AddressClassV6::get(AddressV6::from_string(address).address);
 
         assert_eq!(n("::"), AddressClassV6::ZERO);
         assert_eq!(n("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), AddressClassV6::UNICAST);
         assert_eq!(n("ff00:0000:0000:0000:0000:0000:0000:0000"), AddressClassV6::MULTICAST);
         assert_eq!(n("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), AddressClassV6::MULTICAST);
+        assert_eq!(n("2001:0db8:85a3::8a2e:0370:7334"), AddressClassV6::UNICAST);
+    }
+
+    #[test]
+    fn test_address_v6_from_string() {
+        let address = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        assert_eq!(address.address, 42540766452641154071740215577757643572);
+    }
+
+    #[test]
+    fn test_address_v6_to_string() {
+        let address = AddressV6 {
+            address: 42540766452641154071740215577757643572,
+            class: AddressClassV6::UNICAST,
+        };
+        assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:0:8a2e:370:7334");
+        assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334");
+    }
+
+    #[test]
+    fn test_network_v6_new_default_cidr() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 64);
+        assert_eq!(network.cidr, 64);
+        assert_eq!(ip.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
+    }
+
+    #[test]
+    fn test_network_v6_new() {
+        let ip = AddressV6::from_string("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 128);
+        assert_eq!(network.cidr, 128);
+        assert_eq!(ip.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
+    }
+
+    #[test]
+    fn test_network_v6_contains() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 64);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7335");
+        assert_eq!(network.contains(test_ip), true);
+    }
+
+    #[test]
+    fn test_network_v6_get_first_address() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 64);
+        assert_eq!(network.get_first_address().address, 42540766452641154071740063647526813696);
+    }
+
+    #[test]
+    fn test_network_v6_get_last_address() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 64);
+        assert_eq!(network.get_last_address().address, 42540766452641154090186807721236365311);
     }
 }
