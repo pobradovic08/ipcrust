@@ -4,10 +4,11 @@ mod ipv4;
 //use std::io;
 use regex::RegexSet;
 use std::env;
+use std::process::exit;
 
 enum IpAddressVersion {
     IpV4,
-    IpV6
+    IpV6,
 }
 
 impl IpAddressVersion {
@@ -25,11 +26,34 @@ impl IpAddressVersion {
     }
 }
 
+fn print_help() {
+    println!("\x1b[1m{}\x1b[0m", "IP Calculator in Rust - ipcrust");
+    println!("https://github.com/pobradovic08/ipcrust");
+    println!("Version {}", env!("CARGO_PKG_VERSION"));
+    println!("2023, GPLv3");
+    println!();
+    println!("Usage: ipcrust [-h] NETWORK");
+    println!("Arguments:");
+    println!("    NETWORK\tIP address in CIDR notation or with mask");
+    println!();
+    println!("Options:");
+    println!("    -h\t\tPrint this help");
+    println!();
+    println!("{:16}\x1b[1m{}\x1b[0m", "Usage examples:", "ipcrust <ip>/<cidr>");
+    println!("{:16}\x1b[1m{}\x1b[0m", "", "ipcrust <ipv4>/<mask>");
+    println!("{:16}\x1b[1m{}\x1b[0m", "", "ipcrust <ipv4> <mask>");
+    println!("{:16}\x1b[1m{}\x1b[0m", "", "ipcrust <ip>");
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut arguments: Vec<&str> = Vec::new();
 
     match args.len() {
+        1 => {
+            print_help();
+            exit(1);
+        }
         2 => {
             let ip_str = &args[1];
             let parts: Vec<&str> = ip_str.split(|c| c == '/').collect();
@@ -57,20 +81,20 @@ fn main() {
 
     match IpAddressVersion::get_address_version(arguments[0]) {
         IpAddressVersion::IpV4 => {
-            let ip: ipv4::Address;
-            let mask: ipv4::Mask;
-
-            ip = ipv4::Address::from_string(arguments[0]);
+            let ip: ipv4::Address = ipv4::Address::from_string(arguments[0]);
+            let mut mask: ipv4::Mask = ipv4::Mask::from_cidr(ip.get_default_class_cidr());
 
             match arguments.len() {
-                1 => mask = ipv4::Mask::from_cidr(ip.get_default_class_cidr()),
-                2 => mask = {
-                    match arguments[1].parse::<u8>() {
-                        Ok(v) => ipv4::Mask::from_cidr(v),
-                        Err(_) => ipv4::Mask::from_dotted_decimal(arguments[1])
+                1 => { }
+                2 => {
+                    mask = {
+                        match arguments[1].parse::<u8>() {
+                            Ok(v) => ipv4::Mask::from_cidr(v),
+                            Err(_) => ipv4::Mask::from_dotted_decimal(arguments[1])
+                        }
                     }
-                },
-                _ => panic!("Invalid input format.")
+                }
+                _ => { panic!("Invalid input format.") }
             }
 
             let net = ipv4::Network::new(ip, mask);
