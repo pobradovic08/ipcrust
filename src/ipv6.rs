@@ -255,7 +255,7 @@ impl NetworkV6 {
 
     #[allow(dead_code)]
     pub fn contains(&self, ip: AddressV6) -> bool {
-        return self.ip.address <= ip.address && ip.address <= self.get_last_address().address;
+        return self.get_first_address().address <= ip.address && ip.address <= self.get_last_address().address;
     }
 
     pub fn print_short(&self) -> String {
@@ -449,44 +449,115 @@ mod tests {
     }
 
     #[test]
-    fn test_network_v6_contains() {
+    fn test_network_v6_contains_zero() {
         let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
-        let network = NetworkV6::new(ip, 64);
-        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7335");
+        let network = NetworkV6::new(ip, 0);
+        let test_ip = AddressV6::from_string("::");
+        assert_eq!(network.contains(test_ip), true);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::");
+        assert_eq!(network.contains(test_ip), true);
+        let test_ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
         assert_eq!(network.contains(test_ip), true);
     }
 
     #[test]
-    fn test_network_v6_get_first_address() {
+    fn test_network_v6_contains_64() {
         let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
         let network = NetworkV6::new(ip, 64);
-        assert_eq!(network.get_first_address().address, 42540766452641154071740063647526813696);
-        
-        let ip4 = AddressV6::from_string("::");
-        let network4 = NetworkV6::new(ip4, 64);
-        assert_eq!(network4.get_first_address().address, 0);
-
-        let ip4 = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
-        let network4 = NetworkV6::new(ip4, 0);
-        assert_eq!(network4.get_first_address().address, 0);
-
-        let ip5 = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
-        let network5 = NetworkV6::new(ip5, 128);
-        assert_eq!(network5.get_first_address().address, 340282366920938463463374607431768211455);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::");
+        assert_eq!(network.contains(test_ip), true);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3:0000:ffff:ffff:ffff:ffff");
+        assert_eq!(network.contains(test_ip), true);
     }
 
     #[test]
-    fn test_network_v6_get_last_address() {
+    fn test_network_v6_contains_127() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 127);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        assert_eq!(network.contains(test_ip), true);
+
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7335");
+        assert_eq!(network.contains(test_ip), true);
+
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7336");
+        assert_eq!(network.contains(test_ip), false);
+
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7333");
+        assert_eq!(network.contains(test_ip), false);
+    }
+
+    #[test]
+    fn test_network_v6_contains_128() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 128);
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        assert_eq!(network.contains(test_ip), true);
+
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7335");
+        assert_eq!(network.contains(test_ip), false);
+
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7333");
+        assert_eq!(network.contains(test_ip), false);
+    }
+
+    #[test]
+    fn test_network_v6_get_first_address_zero() {
+        let ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+        let network = NetworkV6::new(ip, 0);
+        assert_eq!(network.get_first_address().address, 0);
+    }
+
+    #[test]
+    fn test_network_v6_get_first_address_64() {
+        let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
+        let network = NetworkV6::new(ip, 64);
+        assert_eq!(network.get_first_address().address, 42540766452641154071740063647526813696);
+
+        let ip = AddressV6::from_string("::");
+        let network = NetworkV6::new(ip, 64);
+        assert_eq!(network.get_first_address().address, 0);
+    }
+
+    #[test]
+    fn test_network_v6_get_first_address_127() {
+        let ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+        let network = NetworkV6::new(ip, 127);
+        assert_eq!(network.get_first_address().address, 340282366920938463463374607431768211454);
+    }
+
+    #[test]
+    fn test_network_v6_get_first_address_128() {
+        let ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+        let network = NetworkV6::new(ip, 128);
+        assert_eq!(network.get_first_address().address, 340282366920938463463374607431768211455);
+    }
+
+    #[test]
+    fn test_network_v6_get_last_address_zero() {
+        let ip = AddressV6::from_string("::");
+        let network = NetworkV6::new(ip, 0);
+        assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
+    }
+
+    #[test]
+    fn test_network_v6_get_last_address_64() {
         let ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
         let network = NetworkV6::new(ip, 64);
         assert_eq!(network.get_last_address().address, 42540766452641154090186807721236365311);
+    }
 
-        let ip4 = AddressV6::from_string("::");
-        let network4 = NetworkV6::new(ip4, 0);
-        assert_eq!(network4.get_last_address().address, 340282366920938463463374607431768211455);
+    #[test]
+    fn test_network_v6_get_last_address_127() {
+        let ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe");
+        let network = NetworkV6::new(ip, 127);
+        assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
+    }
 
-        let ip5 = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
-        let network5 = NetworkV6::new(ip5, 128);
-        assert_eq!(network5.get_last_address().address, 340282366920938463463374607431768211455);
+    #[test]
+    fn test_network_v6_get_last_address_128() {
+        let ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+        let network = NetworkV6::new(ip, 128);
+        assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
     }
 }
