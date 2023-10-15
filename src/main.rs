@@ -107,7 +107,7 @@ fn main() {
                 arguments.insert(1, "64");
             }
 
-            net = ipv6::NetworkV6::from_string((arguments[0].to_string() + "/" + arguments[1]).as_str());
+            net = ipv6::NetworkV6::from_string((arguments[0].to_string() + "/" + arguments[1]).as_str()).unwrap();
             ipv6::print_results(&net);
         }
     }

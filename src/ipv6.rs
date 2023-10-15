@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use crate::ipv6::NetworkV6Error::InvalidAddress;
 
 
 #[allow(dead_code)]
@@ -220,6 +221,12 @@ impl Display for AddressV6 {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum NetworkV6Error {
+    InvalidAddress,
+    InvalidCidr
+}
+
 #[allow(dead_code)]
 pub struct NetworkV6 {
     ip: AddressV6,
@@ -228,39 +235,43 @@ pub struct NetworkV6 {
 }
 
 impl NetworkV6 {
-    pub fn new(ip: AddressV6, cidr: u8) -> NetworkV6 {
+    pub fn new(ip: AddressV6, cidr: u8) -> Result<NetworkV6, NetworkV6Error> {
         let mask: u128;
 
         mask = NetworkV6::cidr_to_mask(cidr);
 
-        NetworkV6 {
+        Ok(NetworkV6 {
             ip: AddressV6 { address: ip.address, class: AddressClassV6::get(ip.address) },
             mask,
             cidr,
-        }
+        })
     }
 
-    pub fn from_string(ip_str: &str) -> NetworkV6 {
+    pub fn from_string(ip_str: &str) -> Result<NetworkV6, NetworkV6Error>  {
         let parts: Vec<&str> = ip_str.split(|c| c == '/').collect();
         let mask: u128;
         let cidr: u8;
         match parts.len() {
+            // <part[0]>/<part[1]>
             2 => {
-                    match parts[1].parse::<u8>() {
-                        Ok(v) => {
-                            cidr = v;
-                            mask = NetworkV6::cidr_to_mask(v);
-                        },
-                        Err(_) => panic!("xxx")
+                //Try to parse CIDR as `u8`
+                match parts[1].parse::<u8>() {
+                    Ok(v) => {
+                        cidr = v;
+                        mask = NetworkV6::cidr_to_mask(v);
                     }
-                NetworkV6 {
+                    Err(_) => {
+                        return Err(NetworkV6Error::InvalidCidr);
+                    }
+                }
+                Ok(NetworkV6 {
                     ip: AddressV6::from_string(parts[0]),
                     mask,
-                    cidr
-                }
-            },
+                    cidr,
+                })
+            }
             _ => {
-                panic!("Error")
+                Err(NetworkV6Error::InvalidAddress)
             }
         }
     }
@@ -323,7 +334,7 @@ impl AddressClassV6 {
     }
 
     fn get_additional_info(address: AddressV6) -> Vec<String> {
-        let n = |network: &str, cidr: u8| NetworkV6::new(AddressV6::from_string(network), cidr);
+        let n = |network: &str, cidr: u8| NetworkV6::new(AddressV6::from_string(network), cidr).unwrap();
         let mut info_array: Vec<String> = vec!();
 
         let address_info_map: [(NetworkV6, &str); 20] = [
@@ -463,21 +474,21 @@ mod tests {
 
     #[test]
     fn test_network_v6_new_64() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
         assert_eq!(network.cidr, 64);
         assert_eq!(network.ip.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
     }
 
     #[test]
     fn test_network_v6_new_128() {
-        let network = NetworkV6::from_string("2001:0db8:85a3:0000:0000:8a2e:0370:7334/128");
+        let network = NetworkV6::from_string("2001:0db8:85a3:0000:0000:8a2e:0370:7334/128").unwrap();
         assert_eq!(network.cidr, 128);
         assert_eq!(network.ip.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
     }
 
     #[test]
     fn test_network_v6_contains_zero() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/0");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/0").unwrap();
         let test_ip = AddressV6::from_string("::");
         assert_eq!(network.contains(test_ip), true);
         let test_ip = AddressV6::from_string("2001:0db8:85a3::");
@@ -488,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_network_v6_contains_64() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
         let test_ip = AddressV6::from_string("2001:0db8:85a3::");
         assert_eq!(network.contains(test_ip), true);
         let test_ip = AddressV6::from_string("2001:0db8:85a3:0000:ffff:ffff:ffff:ffff");
@@ -497,7 +508,7 @@ mod tests {
 
     #[test]
     fn test_network_v6_contains_127() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/127");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/127").unwrap();
 
         let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
         assert_eq!(network.contains(test_ip), true);
@@ -514,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_network_v6_contains_128() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/128");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/128").unwrap();
         let test_ip = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334");
         assert_eq!(network.contains(test_ip), true);
 
@@ -527,52 +538,70 @@ mod tests {
 
     #[test]
     fn test_network_v6_get_first_address_zero() {
-        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/0");
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/0").unwrap();
         assert_eq!(network.get_first_address().address, 0);
     }
 
     #[test]
     fn test_network_v6_get_first_address_64() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
         assert_eq!(network.get_first_address().address, 42540766452641154071740063647526813696);
 
-        let network = NetworkV6::from_string("::/64");
+        let network = NetworkV6::from_string("::/64").unwrap();
         assert_eq!(network.get_first_address().address, 0);
+
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/64").unwrap();
+        assert_eq!(network.get_first_address().address, 340282366920938463444927863358058659840);
     }
 
     #[test]
     fn test_network_v6_get_first_address_127() {
-        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/127");
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/127").unwrap();
         assert_eq!(network.get_first_address().address, 340282366920938463463374607431768211454);
     }
 
     #[test]
     fn test_network_v6_get_first_address_128() {
-        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128");
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128").unwrap();
         assert_eq!(network.get_first_address().address, 340282366920938463463374607431768211455);
     }
 
     #[test]
     fn test_network_v6_get_last_address_zero() {
-        let network = NetworkV6::from_string("::/0");
+        let network = NetworkV6::from_string("::/0").unwrap();
         assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
     }
 
     #[test]
     fn test_network_v6_get_last_address_64() {
-        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64");
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
         assert_eq!(network.get_last_address().address, 42540766452641154090186807721236365311);
     }
 
     #[test]
     fn test_network_v6_get_last_address_127() {
-        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127");
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127").unwrap();
         assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
     }
 
     #[test]
     fn test_network_v6_get_last_address_128() {
-        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128");
+        let network = NetworkV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128").unwrap();
         assert_eq!(network.get_last_address().address, 340282366920938463463374607431768211455);
+    }
+
+    #[test]
+    fn test_network_v6_invalid_input() {
+        // Test with an invalid IPv6 address
+        // assert!(matches!(
+        //     NetworkV6::from_string("invalid_address/64"),
+        //     Err(NetworkV6Error::InvalidAddress)
+        // ));
+
+        // Test with an invalid CIDR value
+        assert!(matches!(
+            NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/129"),
+            Err(NetworkV6Error::InvalidCidr)
+        ));
     }
 }
