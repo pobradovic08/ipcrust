@@ -257,6 +257,9 @@ impl NetworkV6 {
                 //Try to parse CIDR as `u8`
                 match parts[1].parse::<u8>() {
                     Ok(v) => {
+                        if v < 0 || v > 128 {
+                            return Err(NetworkV6Error::InvalidCidr);
+                        }
                         cidr = v;
                         mask = NetworkV6::cidr_to_mask(v);
                     }
