@@ -1,7 +1,11 @@
 use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
 
-
+/// Represents the different formats for displaying an IPv6 address.
+///
+/// - `FormatShort`: Short format, omitting leading zeros in each segment.
+/// - `FormatCondensed`: Condensed format, using double colons (::) for consecutive zeros.
+/// - `FormatFull`: Full format, with leading zeros in each segment.
 #[allow(dead_code)]
 pub enum AddressFormat {
     FormatShort = 1,
@@ -9,6 +13,11 @@ pub enum AddressFormat {
     FormatFull = 3,
 }
 
+/// This struct represents an IPv6 address.
+///
+/// It contains the following fields:
+/// - address: The numerical representation of the IPv6 address.
+/// - class: The class of the IPv6 address.
 #[derive(Copy, Clone)]
 pub struct AddressV6 {
     address: u128,
@@ -16,84 +25,135 @@ pub struct AddressV6 {
 }
 
 impl AddressV6 {
-    pub fn from_string(input: &str) -> Result<AddressV6, AddresskV6Error> {
+
+    /// Parses an IPv6 address from a string.
+    ///
+    /// # Arguments
+    /// * `input` - A string slice that holds the IPv6 address.
+    ///
+    /// # Returns
+    /// Returns a Result containing the parsed `AddressV6` if successful,
+    /// or an `AddresskV6Error` if the input string is not a valid IPv6 address.
+    pub fn from_string(input: &str) -> Result<AddressV6, AddressV6Error> {
+
+        // Initialize default values
+        // Set all bits for IPv6 to 0 to allow bitwise manipulation
         let mut ipv6_num = 0u128;
-        let mut i_parts: Vec<&str> = Vec::new();
+        // Create vector of strings that will hold eight 16bit parts of the IPv6 address
+        let mut ip_parts: Vec<&str> = Vec::new();
 
-        let parts = &input.split("::").collect::<Vec<&str>>()[..];
-
-        match parts.len() {
+        // If there is double colon split the input string in two parts
+        let string_parts = &input.split("::").collect::<Vec<&str>>()[..];
+        match string_parts.len() {
             // No double colon compression
             1 => {
-                i_parts = input.split(":").collect::<Vec<&str>>();
+                ip_parts = input.split(":").collect::<Vec<&str>>();
             }
             // Double colon compression
-            // Left and right parts
             2 => {
-                let mut part_1: Vec<&str> = Vec::new();
-                let mut part_2: Vec<&str> = Vec::new();
+                // Left and right parts
+                // <part_a>::<part_b>
+                let mut part_a: Vec<&str> = Vec::new();
+                let mut part_b: Vec<&str> = Vec::new();
 
-                match parts {
-                    // Zero address (::)
+                // Match parts to figure out where the double colon is
+                match string_parts {
+                    // Both parts are empty -> Zero address (::)
+                    // Return zero address immediately
                     ["", ""] => {
                         return Ok(AddressV6 { address: 0, class: AddressClassV6::ZERO });
                     }
-                    // Double colon in front
+
+                    // Double colon in front of the address
+                    // Collect individual parts of the `part_b` to Vec<&str>
+                    // Prepend 0 parts until all 8 parts are present in `ip_parts`
                     ["", b] => {
-                        for _ in 0..(8 - part_2.len() - 1) {
-                            part_1.push("0");
+                        part_b = b.split(":").collect::<Vec<&str>>();
+                        for _ in 0..(8 - part_b.len()) {
+                            part_a.push("0");
                         }
-                        part_2 = b.split(":").collect::<Vec<&str>>();
                     }
-                    // Double colon in the end
+                    // Double colon in the end of the address
+                    // Collect individual parts of the `part_a` to Vec<&str>
+                    // Append 0 parts until all 8 parts are present in `ip_parts`
                     [a, ""] => {
-                        part_1 = a.split(":").collect::<Vec<&str>>();
-                        for _ in 0..(8 - part_1.len()) {
-                            part_2.push("0");
+                        part_a = a.split(":").collect::<Vec<&str>>();
+                        for _ in 0..(8 - part_a.len()) {
+                            part_b.push("0");
                         }
                     }
+                    // Double colon in the middle of the address
+                    // Collect individual parts of the `part_a` and `part_b` to Vec<&str>
+                    // Insert 0 parts in the middle until whole 8 parts is present in `ip_parts`
                     _ => {
-                        part_1 = parts[0].split(":").collect::<Vec<&str>>();
-                        part_2 = parts[1].split(":").collect::<Vec<&str>>();
-                        for _ in 0..(8 - (part_1.len() + part_2.len())) {
-                            part_1.push("0");
+                        part_a = string_parts[0].split(":").collect::<Vec<&str>>();
+                        part_b = string_parts[1].split(":").collect::<Vec<&str>>();
+                        for _ in 0..(8 - (part_a.len() + part_b.len())) {
+                            part_a.push("0");
                         }
                     }
                 }
 
-                i_parts.append(&mut part_1);
-                i_parts.append(&mut part_2);
+                // Combine both parts to `ip_parts` to prepare for conversion to decimal
+                ip_parts.append(&mut part_a);
+                ip_parts.append(&mut part_b);
+                dbg!(&ip_parts);
             }
-
-            _ => return Err(AddresskV6Error::InvalidAddress)
+            // More than one double colon
+            _ => return Err(AddressV6Error::InvalidAddress)
         }
 
-        //Parse string to u32. Collect to `Result<Vec<u32>,ParseIntError>` instead of just Vec<u32>
-        // To catch invalid entries
-        let ipv6_parts = i_parts.iter().map(
+        // Parse hexadecimal string to u16.
+        // Collect to `Result<Vec<u32>, ParseIntError>` instead of just Vec<u16>
+        // Providing invalid IPv6 string that can't be parsed (ParseIntError)
+        // will result in AddressV6Error
+        let ipv6_parts = ip_parts.iter().map(
             |x| u16::from_str_radix(x, 16)
         ).collect::<Result<Vec<u16>,ParseIntError>>();
 
+        // Match ipv6_parts
+        // If the Result is OK and the length of the parts is 8, build IPv6 from parts
+        // If there is an Error or the length of the parts is not 8, return AddressV6Error
         match ipv6_parts {
             Ok(vector) => {
                 if vector.len() == 8 {
+                    // Go through 8 parts in `vector`, converting them to u128,
+                    // shifting them 16bits at the time to 'position' them to correct place,
+                    // and adding the result to `ipv6_num` that represents the IPv6 address
+                    // ipv6_parts example: [1, 2, 3, 4, 5, 6, 7, 8]
+                    // 0000 0000 0000 0000 0000 0000 0000 0001 << shift 112 bits
+                    // 0000 0000 0000 0000 0000 0000 0000 0002 << shift 96 bits
+                    // 0000 0000 0000 0000 0000 0000 0000 0003 << shift 80 bits
+                    // ...
                     for i in 1..=8 {
                         ipv6_num += (vector[i - 1] as u128) << 128 - (i * 16);
                     }
                     return Ok(AddressV6 { address: ipv6_num, class: AddressClassV6::get(ipv6_num) })
                 }
-                Err(AddresskV6Error::InvalidAddress)
+                Err(AddressV6Error::InvalidAddress)
             },
-            Err(_e) => Err(AddresskV6Error::InvalidAddress)
+            Err(_e) => Err(AddressV6Error::InvalidAddress)
         }
     }
 
+    /// This function returns a string representation of the IPv6 address.
+    ///
+    /// # Arguments
+    /// * `format` - An `AddressFormat` enum value that specifies the format of the output string.
+    ///
+    /// # Example
+    /// ```
+    /// let string = address.to_string(AddressFormat::FormatShort);
+    /// ```
     pub fn to_string(&self, format: AddressFormat) -> String {
-        let mut hex_parts: [u32; 8] = [0; 8];
+        // Initialize array of all zeros (for further bitwise transformation)
+        let mut hex_parts: [u16; 8] = [0; 8];
         let string: String;
 
+        // Shift the address incrementally for 16 bits
+        // and store the least significant 16bits (0xffff) for each shift to its part of the array
         for i in 1..=8 {
-            hex_parts[i - 1] = (self.address >> (128 - i * 16) & 0xffff) as u32;
+            hex_parts[i - 1] = (self.address >> (128 - i * 16) & 0xffff) as u16;
         }
 
         match format {
@@ -228,17 +288,29 @@ impl Display for AddressV6 {
     }
 }
 
+/// Represents the possible errors that can occur during IPv6 address parsing.
+///
+/// - `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
 #[derive(Debug, PartialEq)]
-pub enum AddresskV6Error {
+pub enum AddressV6Error {
     InvalidAddress
 }
 
+/// This enum represents the possible errors that can occur during network parsing.
+///
+/// - InvalidAddress: Indicates that the address in the network string is invalid.
+/// - InvalidCidr: Indicates that the CIDR value in the network string is invalid.
 #[derive(Debug, PartialEq)]
 pub enum NetworkV6Error {
     InvalidAddress,
     InvalidCidr
 }
 
+/// This struct represents an IPv6 network.
+///
+/// It contains the following fields:
+/// - address: The IPv6 address of the network.
+/// - cidr: The CIDR notation of the network.
 #[allow(dead_code)]
 pub struct NetworkV6 {
     ip: AddressV6,
@@ -475,6 +547,12 @@ mod tests {
     fn test_address_v6_from_string() {
         let address = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334").unwrap();
         assert_eq!(address.address, 42540766452641154071740215577757643572);
+
+        let address = AddressV6::from_string("2001:0db8:85a3::").unwrap();
+        assert_eq!(address.address, 42540766452641154071740063647526813696);
+
+        let address = AddressV6::from_string("::8a2e:0370:7334").unwrap();
+        assert_eq!(address.address, 151930230829876);
     }
 
     #[test]
