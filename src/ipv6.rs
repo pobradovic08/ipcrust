@@ -157,50 +157,7 @@ impl AddressV6 {
 
         match format {
             AddressFormat::FormatShort => {
-                /*
-                Find the longest contiguous occurrence of 0 parts
-                `p` and `p_tmp` are the tuples that hold (0: end_position, 1: length)
-                `p` represents the longest contiguous occurrence
-                `p_tmp` represents the temporary counter
-
-                             p.1 = 3
-                              |---|
-                1234:0:0:1234:0:0:0:1234
-                                  ^
-                               p.0 = 7
-                */
-
-                // Longest occurrence
-                let mut p: (usize, usize) = (0, 0);
-                // Temporary counter
-                let mut p_tmp: (usize, usize) = (0, 0);
-
-                // Go through all 8 IPv6 address parts
-                for i in 0..8 {
-                    // If a part iz zero, set the position of temporary counter to current index
-                    // and increase the length value of temporary counter by 1
-                    if hex_parts[i] == 0 {
-                        p_tmp.0 = i;
-                        p_tmp.1 += 1;
-                    } else {
-                        // If temporary counter length is greater than current maximum length
-                        // save the temporary counter as maximum and reset the temporary counter
-                        if p_tmp.1 > p.1 {
-                            p = p_tmp;
-                            p_tmp.1 = 0;
-                            p_tmp.0 = 0;
-                        }
-                    }
-                }
-
-                // Save the temporary counter as maximum
-                if p_tmp.1 > p.1 {
-                    p = p_tmp;
-                }
-
-                // Start index is end position minus the length of null parts
-                let start = 1 + p.0 - p.1;
-                let end = p.0 + 1;
+                let (start, end) = find_contiguous_zeros(&hex_parts);
 
                 /*
                 [1234, 0, 0, 1234, 0, 0, 0, 1234]
@@ -316,6 +273,55 @@ impl Display for AddressV6 {
     }
 }
 
+/**
+Find the longest contiguous occurrence of 0 parts
+`location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
+`location` represents the longest contiguous occurrence
+`location_tmp` represents the temporary counter
+
+           location.1 = 3
+               |---|
+ 1234:0:0:1234:0:0:0:1234
+                   ^
+           location.0 = 7
+*/
+pub fn find_contiguous_zeros(array: &[u16; 8]) -> (usize, usize) {
+
+    // Longest occurrence
+    let mut location: (usize, usize) = (0, 0);
+    // Temporary counter
+    let mut location_tmp: (usize, usize) = (0, 0);
+
+    // Go through all 8 IPv6 address parts
+    for i in 0..8 {
+        // If a part iz zero, set the position of temporary counter to current index
+        // and increase the length value of temporary counter by 1
+        if array[i] == 0 {
+            location_tmp.0 = i;
+            location_tmp.1 += 1;
+        } else {
+            // If temporary counter length is greater than current maximum length
+            // save the temporary counter as maximum and reset the temporary counter
+            if location_tmp.1 > location.1 {
+                location = location_tmp;
+                location_tmp.1 = 0;
+                location_tmp.0 = 0;
+            }
+        }
+    }
+
+    // Save the temporary counter as maximum
+    if location_tmp.1 > location.1 {
+        location = location_tmp;
+    }
+
+    // Start index is end position minus the length of null parts
+    let start = 1 + location.0 - location.1;
+    let end = location.0 + 1;
+
+    (start, end)
+}
+
 /// Represents the possible errors that can occur during IPv6 address parsing.
 ///
 /// - `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
@@ -391,7 +397,6 @@ impl NetworkV6 {
         return AddressV6 { address: ipv6_num, class: AddressClassV6::get(ipv6_num) };
     }
 
-    #[allow(dead_code)]
     pub fn contains(&self, ip: AddressV6) -> bool {
         return self.get_first_address().address <= ip.address && ip.address <= self.get_last_address().address;
     }
@@ -503,7 +508,7 @@ fn print_bar_ipv6_parts(cidr: u8) -> String {
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[0m▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀", part_1, part_2)
 }
 
-pub fn print_results(net: &NetworkV6) {
+pub fn print_results(net: &NetworkV6) -> () {
     let tw = 71;
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net.ip), tw + 14);
@@ -548,6 +553,14 @@ pub fn print_results(net: &NetworkV6) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_prints() {
+        let network = NetworkV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:2222/64").unwrap();
+        assert_eq!(print_results(&network), ());
+        let network = NetworkV6::from_string("2001:0db8:85a3::8a2e:0370:7334/32").unwrap();
+        assert_eq!(print_results(&network), ());
+    }
 
     #[test]
     fn test_ipv6_class() {
@@ -614,6 +627,44 @@ mod tests {
 
         assert_eq!(format!("{}", address), address.to_string(AddressFormat::FormatFull));
         assert_eq!(format!("{}", address), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+    }
+
+    #[test]
+    fn test_address_v6_is_eui_64() {
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:2222").unwrap();
+        assert_eq!(address.is_eui64(), true);
+        let address = AddressV6::from_string("2001:0db8:85a3:0:0:11ff:fe11:2222").unwrap();
+        assert_eq!(address.is_eui64(), false);
+    }
+
+    #[test]
+    fn test_address_v6_get_eui_64_string(){
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:2222").unwrap();
+        assert_eq!(address.get_eui64_string(), "0200:11ff:fe11:2222");
+
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:0").unwrap();
+        assert_eq!(address.get_eui64_string(), "0200:11ff:fe11:0000");
+    }
+
+    #[test]
+    fn test_address_v6_get_eui_64_dec(){
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:2222").unwrap();
+        assert_eq!(address.get_eui64_num(), 144134979252724258);
+
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:0").unwrap();
+        assert_eq!(address.get_eui64_num(), 144134979252715520);
+    }
+
+    #[test]
+    fn test_address_v6_get_eui_48_string() {
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11ff:fe11:2222").unwrap();
+        assert_eq!(address.get_eui48_string(), "00:00:11:11:22:22");
+    }
+
+    #[test]
+    fn test_address_v6_get_eui_48_dec() {
+        let address = AddressV6::from_string("2001:0db8:85a3:0:200:11FF:FE11:2222").unwrap();
+        assert_eq!(address.get_eui48_num(), 286335522)
     }
 
     #[test]
