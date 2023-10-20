@@ -101,13 +101,13 @@ fn main() {
             ipv4::print_results(&net);
         }
         IpAddressVersion::IpV6 => {
-            let net: ipv6::NetworkV6;
+            let net: ipv6::AddressV6;
 
             if arguments.len() == 1 {
                 arguments.insert(1, "64");
             }
 
-            net = ipv6::NetworkV6::from_string((arguments[0].to_string() + "/" + arguments[1]).as_str()).unwrap();
+            net = ipv6::AddressV6::from_string((arguments[0].to_string() + "/" + arguments[1]).as_str()).unwrap();
             ipv6::print_results(&net);
         }
     }
