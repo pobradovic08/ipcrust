@@ -41,22 +41,12 @@ impl AddressV6 {
         // Initialize default values
         // Set all bits for IPv6 to 0 to allow bitwise manipulation
         let mut ipv6_num = 0u128;
-        let cidr;
-        let address_str: &str;
 
         // Create vector of strings that will hold eight 16bit parts of the IPv6 address
         let mut ip_parts: Vec<&str> = Vec::new();
 
-
-        match AddressV6::_parse_string(input) {
-            Ok((a, b)) => {
-                address_str = a;
-                cidr = b;
-            },
-            Err(v) => {
-                return Err(v);
-            }
-        }
+        // Parse input string to address part and cidr part
+        let (address_str, cidr) = AddressV6::_parse_string(input)?;
 
         // If there is double colon split the input string in two parts
         let string_parts = &address_str.split("::").collect::<Vec<&str>>()[..];
@@ -77,12 +67,7 @@ impl AddressV6 {
                     // Both parts are empty -> Zero address (::)
                     // Return zero address immediately
                     ["", ""] => {
-                        return Ok(AddressV6 {
-                            address: 0,
-                            cidr,
-                            class: AddressClassV6::ZERO,
-                            _mask: AddressV6::cidr_to_mask(cidr)
-                        });
+                        return AddressV6::from_dec(0, Some(cidr));
                     }
 
                     // Double colon in front of the address
@@ -148,12 +133,7 @@ impl AddressV6 {
                     for i in 1..=8 {
                         ipv6_num += (vector[i - 1] as u128) << 128 - (i * 16);
                     }
-                    return Ok(AddressV6 {
-                        address: ipv6_num,
-                        cidr,
-                        class: AddressClassV6::get(ipv6_num),
-                        _mask: AddressV6::cidr_to_mask(cidr)
-                    })
+                    return AddressV6::from_dec(ipv6_num, Some(cidr));
                 }
                 Err(AddressV6Error::InvalidAddress)
             },
@@ -162,9 +142,9 @@ impl AddressV6 {
     }
 
     pub fn from_dec(address: u128, cidr: Option<u8>) -> Result<AddressV6, AddressV6Error> {
-        let cidr = cidr.unwrap_or(128);
+        let cidr = cidr.unwrap_or(128u8);
         if cidr > 128 {
-            return Err(AddressV6Error::InvalidAddress);
+            return Err(AddressV6Error::InvalidCidr);
         }
         Ok(AddressV6 {
             address,
@@ -218,54 +198,7 @@ impl AddressV6 {
     /// let string = address.to_string(AddressFormat::FormatShort);
     /// ```
     pub fn to_string(&self, format: AddressFormat) -> String {
-        // Initialize array of all zeros (for further bitwise transformation)
-        let mut hex_parts: [u16; 8] = [0; 8];
-        let string: String;
-
-        // Shift the address incrementally for 16 bits
-        // and store the least significant 16bits (0xffff) for each shift to its part of the array
-        for i in 1..=8 {
-            hex_parts[i - 1] = (self.address >> (128 - i * 16) & 0xffff) as u16;
-        }
-
-        match format {
-            AddressFormat::FormatShort => {
-                let (start, end) = find_contiguous_zeros(&hex_parts);
-
-                /*
-                [1234, 0, 0, 1234, 0, 0, 0, 1234]
-                 |--------------|           |--|
-                       start                 end
-                 */
-                let p1 = &hex_parts[0..start];
-                let p2 = &hex_parts[end..];
-
-                // Convert u16s to hex strings
-                let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
-                let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
-
-                // If there are 8 parts use colon as a separator between s1 and s2 instead of double colon
-                let separator: &str = if s1.len() + s2.len() == 8 {
-                    ":"
-                } else {
-                    "::"
-                };
-
-                // Join two parts
-                string = format!("{}{}{}", s1.join(":"), separator, s2.join(":"));
-            }
-            AddressFormat::FormatCondensed => {
-                let string_array = hex_parts.map(|h| format!("{:x}", h));
-                string = string_array.join(":");
-            }
-            AddressFormat::FormatFull => {
-                let string_array = hex_parts.map(|h| format!("{:04x}", h));
-                string = string_array.join(":");
-            }
-        }
-
-        // Return generated string
-        string
+        AddressV6::dec_to_str(self.address, format)
     }
 
     pub fn get_first_address(&self) -> u128 {
@@ -371,7 +304,7 @@ impl AddressV6 {
 
         match format {
             AddressFormat::FormatShort => {
-                let (start, end) = find_contiguous_zeros(&hex_parts);
+                let (start, end) = AddressV6::find_contiguous_zeros(&hex_parts);
 
                 /*
                 [1234, 0, 0, 1234, 0, 0, 0, 1234]
@@ -408,61 +341,61 @@ impl AddressV6 {
         // Return generated string
         string
     }
+
+    /**
+    Find the longest contiguous occurrence of 0 parts
+    `location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
+    `location` represents the longest contiguous occurrence
+    `location_tmp` represents the temporary counter
+
+               location.1 = 3
+                   |---|
+     1234:0:0:1234:0:0:0:1234
+                       ^
+               location.0 = 7
+     */
+    pub fn find_contiguous_zeros(array: &[u16; 8]) -> (usize, usize) {
+
+        // Longest occurrence
+        let mut location: (usize, usize) = (0, 0);
+        // Temporary counter
+        let mut location_tmp: (usize, usize) = (0, 0);
+
+        // Go through all 8 IPv6 address parts
+        for i in 0..8 {
+            // If a part iz zero, set the position of temporary counter to current index
+            // and increase the length value of temporary counter by 1
+            if array[i] == 0 {
+                location_tmp.0 = i;
+                location_tmp.1 += 1;
+            } else {
+                // If temporary counter length is greater than current maximum length
+                // save the temporary counter as maximum and reset the temporary counter
+                if location_tmp.1 > location.1 {
+                    location = location_tmp;
+                    location_tmp.1 = 0;
+                    location_tmp.0 = 0;
+                }
+            }
+        }
+
+        // Save the temporary counter as maximum
+        if location_tmp.1 > location.1 {
+            location = location_tmp;
+        }
+
+        // Start index is end position minus the length of null parts
+        let start = 1 + location.0 - location.1;
+        let end = location.0 + 1;
+
+        (start, end)
+    }
 }
 
 impl Display for AddressV6 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string(AddressFormat::FormatFull))
     }
-}
-
-/**
-Find the longest contiguous occurrence of 0 parts
-`location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
-`location` represents the longest contiguous occurrence
-`location_tmp` represents the temporary counter
-
-           location.1 = 3
-               |---|
- 1234:0:0:1234:0:0:0:1234
-                   ^
-           location.0 = 7
-*/
-pub fn find_contiguous_zeros(array: &[u16; 8]) -> (usize, usize) {
-
-    // Longest occurrence
-    let mut location: (usize, usize) = (0, 0);
-    // Temporary counter
-    let mut location_tmp: (usize, usize) = (0, 0);
-
-    // Go through all 8 IPv6 address parts
-    for i in 0..8 {
-        // If a part iz zero, set the position of temporary counter to current index
-        // and increase the length value of temporary counter by 1
-        if array[i] == 0 {
-            location_tmp.0 = i;
-            location_tmp.1 += 1;
-        } else {
-            // If temporary counter length is greater than current maximum length
-            // save the temporary counter as maximum and reset the temporary counter
-            if location_tmp.1 > location.1 {
-                location = location_tmp;
-                location_tmp.1 = 0;
-                location_tmp.0 = 0;
-            }
-        }
-    }
-
-    // Save the temporary counter as maximum
-    if location_tmp.1 > location.1 {
-        location = location_tmp;
-    }
-
-    // Start index is end position minus the length of null parts
-    let start = 1 + location.0 - location.1;
-    let end = location.0 + 1;
-
-    (start, end)
 }
 
 /// Represents the possible errors that can occur during IPv6 address parsing.
@@ -560,7 +493,7 @@ pub fn print_results(net: &AddressV6) -> () {
     println!("│{0:<1$}│", format!("\x1b[1;38;5;10m █ Address:    {}\x1b[0m", net), tw + 14);
     println!("│{0:<1$}│", format!("\x1b[0;38;5;38m ░ Type:       {}\x1b[0m", net.class), tw + 14);
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{0:<1$}│", format!(" ░ Network:    {}", net), tw - 2);
+    println!("│{0:<1$}│", format!(" ░ Network:    {}/{}", AddressV6::dec_to_str(net.get_first_address(), AddressFormat::FormatFull), net.cidr), tw - 2);
     println!("│{0:<1$}│", format!(" ░ First IPv6: {}", AddressV6::dec_to_str(net.get_first_address(), AddressFormat::FormatFull)), tw - 2);
     println!("│{0:<1$}│", format!(" ░ Last IPv6:  {}", AddressV6::dec_to_str(net.get_last_address(), AddressFormat::FormatFull)), tw - 2);
     println!("│{:^1$}│", "", tw - 2);
@@ -725,18 +658,18 @@ mod tests {
         let network = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334/0").unwrap();
         let test_ip = AddressV6::from_string("::").unwrap();
         assert_eq!(network.contains(&test_ip), true);
-        let test_ip = AddressV6::from_string("2001:0db8:85a3::").unwrap();
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::/0").unwrap();
         assert_eq!(network.contains(&test_ip), true);
-        let test_ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff").unwrap();
+        let test_ip = AddressV6::from_string("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/0").unwrap();
         assert_eq!(network.contains(&test_ip), true);
     }
 
     #[test]
     fn test_network_v6_contains_64() {
         let network = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
-        let test_ip = AddressV6::from_string("2001:0db8:85a3::").unwrap();
+        let test_ip = AddressV6::from_string("2001:0db8:85a3::/64").unwrap();
         assert_eq!(network.contains(&test_ip), true);
-        let test_ip = AddressV6::from_string("2001:0db8:85a3:0000:ffff:ffff:ffff:ffff").unwrap();
+        let test_ip = AddressV6::from_string("2001:0db8:85a3:0000:ffff:ffff:ffff:ffff/64").unwrap();
         assert_eq!(network.contains(&test_ip), true);
     }
 
@@ -869,6 +802,10 @@ mod tests {
         ));
         assert!(matches!(
             AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334/ab"),
+            Err(AddressV6Error::InvalidCidr)
+        ));
+        assert!(matches!(
+            AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334/"),
             Err(AddressV6Error::InvalidCidr)
         ));
     }
