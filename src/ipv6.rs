@@ -157,14 +157,34 @@ impl AddressV6 {
 
         match format {
             AddressFormat::FormatShort => {
+                /*
+                Find the longest contiguous occurrence of 0 parts
+                `p` and `p_tmp` are the tuples that hold (0: end_position, 1: length)
+                `p` represents the longest contiguous occurrence
+                `p_tmp` represents the temporary counter
+
+                             p.1 = 3
+                              |---|
+                1234:0:0:1234:0:0:0:1234
+                                  ^
+                               p.0 = 7
+                */
+
+                // Longest occurrence
                 let mut p: (usize, usize) = (0, 0);
+                // Temporary counter
                 let mut p_tmp: (usize, usize) = (0, 0);
 
+                // Go through all 8 IPv6 address parts
                 for i in 0..8 {
+                    // If a part iz zero, set the position of temporary counter to current index
+                    // and increase the length value of temporary counter by 1
                     if hex_parts[i] == 0 {
                         p_tmp.0 = i;
                         p_tmp.1 += 1;
                     } else {
+                        // If temporary counter length is greater than current maximum length
+                        // save the temporary counter as maximum and reset the temporary counter
                         if p_tmp.1 > p.1 {
                             p = p_tmp;
                             p_tmp.1 = 0;
@@ -173,20 +193,28 @@ impl AddressV6 {
                     }
                 }
 
+                // Save the temporary counter as maximum
                 if p_tmp.1 > p.1 {
                     p = p_tmp;
                 }
 
+                // Start index is end position minus the length of null parts
                 let start = 1 + p.0 - p.1;
                 let end = p.0 + 1;
 
+                /*
+                [1234, 0, 0, 1234, 0, 0, 0, 1234]
+                 |--------------|           |--|
+                       start                 end
+                 */
                 let p1 = &hex_parts[0..start];
                 let p2 = &hex_parts[end..];
 
+                // Convert u16s to hex strings
                 let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
                 let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
 
-                // If there are 8 parts use colon instead of double colon
+                // If there are 8 parts use colon as a separator between s1 and s2 instead of double colon
                 let separator: &str = if s1.len() + s2.len() == 8 {
                     ":"
                 } else {
@@ -556,6 +584,14 @@ mod tests {
         assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
         assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:0:8a2e:370:7334");
         assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334");
+
+        let address = AddressV6 {
+            address: 42540766452641154081696963253260779520,
+            class: AddressClassV6::UNICAST,
+        };
+        assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:8a2e:0370:0000:0000");
+        assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:8a2e:370:0:0");
+        assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3:0:8a2e:370::");
     }
 
     #[test]
