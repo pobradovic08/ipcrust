@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
+use regex::Regex;
 
 /// Represents the different formats for displaying an IPv6 address.
 ///
@@ -156,35 +157,25 @@ impl AddressV6 {
 
     fn _parse_string(input: &str) -> Result<(&str, u8), AddressV6Error> {
         let parts: Vec<&str> = input.split(|c| c == '/').collect();
-        let address: &str;
-        let cidr: u8;
+        let address: &str = parts[0];
+        let regex_address_v6 = Regex::new(r"^([A-Fa-f0-9:]{1,4}:+)+([A-Fa-f0-9]{1,4})?$").unwrap();
+
         match parts.len() {
-            1 => {
-                address = input;
-                cidr = 128u8;
-                return Ok((address, cidr));
-            },
-            // <part[0]>/<part[1]>
+            // IP: <part[0]>
+            1 => return Ok((address, 128u8)),
+            // IP: <part[0]>/<part[1]>
             2 => {
-                address = parts[0];
+                if !regex_address_v6.is_match(address) {
+                    return Err(AddressV6Error::InvalidAddress);
+                }
+
                 //Try to parse CIDR as `u8`
                 return match parts[1].parse::<u8>() {
-                    Ok(v) => {
-                        cidr = v;
-                        if cidr <= 128 {
-                            Ok((address, cidr))
-                        } else {
-                            Err(AddressV6Error::InvalidCidr)
-                        }
-                    }
-                    Err(_) => {
-                        Err(AddressV6Error::InvalidCidr)
-                    }
+                    Ok(cidr) => Ok((address, cidr)),
+                    Err(_) => Err(AddressV6Error::InvalidCidr),
                 }
-            }
-            _ => {
-                Err(AddressV6Error::InvalidAddress)
-            }
+            },
+            _ => Err(AddressV6Error::InvalidAddress),
         }
     }
 
@@ -197,9 +188,6 @@ impl AddressV6 {
     /// ```
     /// let string = address.to_string(AddressFormat::FormatShort);
     /// ```
-    pub fn to_string(&self, format: AddressFormat) -> String {
-        AddressV6::dec_to_str(self.address, format)
-    }
 
     pub fn get_first_address(&self) -> u128 {
         self.address & self._mask
@@ -211,6 +199,24 @@ impl AddressV6 {
 
     pub fn contains(&self, ip: &AddressV6) -> bool {
         return self.get_first_address() <= ip.address && ip.address <= self.get_last_address();
+    }
+
+    pub fn to_string(&self, format: AddressFormat) -> String {
+        AddressV6::dec_to_str(self.address, format)
+    }
+
+    ///
+    /// Return `true` if the Interface ID part of the IPv6 address has the bits
+    /// indicative of EUI-64 set.
+    /// ```
+    /// 0000001000000000000000001111111111111110000000000000000000000000
+    ///       ^                 ^--------------^
+    /// Universal bit                0xfffe
+    /// ```
+    ///
+    pub fn is_eui64(&self) -> bool {
+        let eui64_mask: u64 = 0x20000fffe000000;
+        self.get_eui64_num() & eui64_mask == eui64_mask
     }
 
     ///
@@ -234,20 +240,6 @@ impl AddressV6 {
 
         let string_array = hex_parts.map(|h| format!("{:04x}", h));
         string_array.join(":")
-    }
-
-    ///
-    /// Return `true` if the Interface ID part of the IPv6 address has the bits
-    /// indicative of EUI-64 set.
-    /// ```
-    /// 0000001000000000000000001111111111111110000000000000000000000000
-    ///       ^                 ^--------------^
-    /// Universal bit                0xfffe
-    /// ```
-    ///
-    pub fn is_eui64(&self) -> bool {
-        let eui64_mask: u64 = 0x20000fffe000000;
-        self.get_eui64_num() & eui64_mask == eui64_mask
     }
 
     ///
