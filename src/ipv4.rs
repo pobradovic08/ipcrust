@@ -64,6 +64,11 @@ pub fn dotted_decimal_to_int(address_string: &str) -> u32 {
 /// Used for validating `IPv4Mask`
 ///
 pub fn is_contiguous(mut number: u32) -> bool {
+
+    if number == 0 {
+        return true;
+    }
+
     // Count the number of shifts, should be 0 at the end
     let mut counter: u8 = 32;
 
@@ -439,6 +444,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_int_to_dotted_notation() {
+        assert_eq!(int_to_dotted_decimal(&0u32), "0.0.0.0");
+        assert_eq!(int_to_dotted_decimal(&16909060u32), "1.2.3.4");
+        assert_eq!(int_to_dotted_decimal(&524548u32), "0.8.1.4");
+        assert_eq!(int_to_dotted_decimal(&4294967295u32), "255.255.255.255");
+        assert_eq!(int_to_dotted_decimal(&4278190080u32), "255.0.0.0");
+    }
+
+    #[test]
+    fn test_int_to_cidr() {
+        assert_eq!(int_to_cidr(&0u32, 0), 0);
+        assert_eq!(int_to_cidr(&4278190080u32, 0), 8);
+        assert_eq!(int_to_cidr(&4294901760u32, 0), 16);
+        assert_eq!(int_to_cidr(&4294967040u32, 0), 24);
+        assert_eq!(int_to_cidr(&4294967294u32, 0), 31);
+        assert_eq!(int_to_cidr(&4294967295u32, 0), 32);
+    }
+
+    #[test]
+    fn test_int_to_cidr_invalid() {
+        //TODO: Add checks for invalid CIDR
+    }
+
+    #[test]
+    fn test_dotted_decimal_to_int() {
+        assert_eq!(dotted_decimal_to_int("0.0.0.0"), 0);
+        assert_eq!(dotted_decimal_to_int("1.2.3.4"), 16909060);
+        assert_eq!(dotted_decimal_to_int("0.8.1.4"), 524548);
+        assert_eq!(dotted_decimal_to_int("255.255.255.255"), 4294967295);
+        assert_eq!(dotted_decimal_to_int("255.0.0.0"), 4278190080);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dotted_decimal_to_int_invalid() {
+        dotted_decimal_to_int("0..0.0");
+        dotted_decimal_to_int("0.256.0.0");
+        dotted_decimal_to_int("0.0.0");
+        dotted_decimal_to_int("0.a.0.0");
+        dotted_decimal_to_int("0.-1.0.0");
+    }
+
+    #[test]
+    fn test_is_contiguous() {
+        assert_eq!(is_contiguous(0), true);
+        assert_eq!(is_contiguous(1), false);
+
+        for shift in 0..32u8 {
+            // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
+            let mask = 0xffffffff << shift;
+            assert_eq!(is_contiguous(mask), true);
+
+
+            if shift == 32 || shift <= 1 {
+                continue;
+            }
+            assert_eq!(is_contiguous(mask-1), false);
+            assert_eq!(is_contiguous(mask+1), false);
+        }
+    }
+
+    #[test]
     fn test_ip_class() {
         assert_eq!(AddressClass::get(Address::from_string("0.0.0.0").address), AddressClass::ZERO);
         assert_eq!(AddressClass::get(Address::from_string("0.0.0.1").address), AddressClass::A);
@@ -452,6 +519,33 @@ mod tests {
         assert_eq!(AddressClass::get(Address::from_string("240.0.0.0").address), AddressClass::E);
         assert_eq!(AddressClass::get(Address::from_string("255.255.255.254").address), AddressClass::E);
         assert_eq!(AddressClass::get(Address::from_string("255.255.255.255").address), AddressClass::BROADCAST);
+    }
+
+
+    #[test]
+    fn test_address_from_dec() {
+        assert_eq!(Address::from_int(0u32).address, 0u32);
+        assert_eq!(Address::from_int(16909060u32).address, 16909060u32);
+        assert_eq!(Address::from_int(524548u32).address, 524548u32);
+        assert_eq!(Address::from_int(4294967295u32).address, 4294967295u32);
+        assert_eq!(Address::from_int(4278190080u32).address, 4278190080u32);
+    }
+
+    #[test]
+    fn test_address_from_string() {
+        assert_eq!(Address::from_string("0.0.0.0").address, 0u32);
+        assert_eq!(Address::from_string("1.2.3.4").address, 16909060u32);
+        assert_eq!(Address::from_string("0.8.1.4").address, 524548u32);
+        assert_eq!(Address::from_string("255.255.255.255").address, 4294967295u32);
+        assert_eq!(Address::from_string("255.0.0.0").address, 4278190080u32);
+    }
+
+    #[test]
+    fn test_address_dotted_decimal() {
+        for ip in ["0.0.0.0", "1.2.3.4", "0.8.1.4", "255.255.255.255", "255.0.0.0"] {
+            let address = Address::from_string(ip);
+            assert_eq!(int_to_dotted_decimal(&address.address), address.dotted_decimal());
+        }
     }
 
     #[test]
