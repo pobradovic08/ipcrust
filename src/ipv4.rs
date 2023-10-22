@@ -626,7 +626,7 @@ mod tests {
     fn test_address_dotted_decimal() {
         for ip in ["0.0.0.0", "1.2.3.4", "0.8.1.4", "255.255.255.255", "255.0.0.0"] {
             let address = Address::from_string(ip).unwrap();
-            assert_eq!(int_to_dotted_decimal(&address.address), address.dotted_decimal());
+            assert_eq!(int_to_dotted_decimal(&address.address), ip);
         }
     }
 
