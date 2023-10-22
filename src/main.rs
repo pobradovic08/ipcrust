@@ -5,6 +5,7 @@ mod ipv6;
 use regex::RegexSet;
 use std::env;
 use std::process::exit;
+use crate::ipv4::Address;
 
 enum IpAddressVersion {
     IpV4,
@@ -91,7 +92,7 @@ fn main() {
     match IpAddressVersion::get_address_version(arguments[0]) {
         IpAddressVersion::IpV4 => {
             let ip: ipv4::Address = ipv4::Address::from_string(arguments[0]).unwrap();
-            let mut mask: ipv4::Mask = ipv4::Mask::from_cidr(ip.get_default_class_cidr());
+            let mut mask: ipv4::Mask = ipv4::Mask::from_cidr(Address::get_default_class_cidr(ip.class).unwrap_or(32));
 
             match arguments.len() {
                 1 => {}

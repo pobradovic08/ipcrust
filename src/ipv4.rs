@@ -97,7 +97,9 @@ pub enum AddressError {
 #[derive(Copy, Clone)]
 pub struct Address {
     address: u32,
-    class: AddressClass,
+    cidr: u8,
+    pub class: AddressClass, //TODO: make private
+    _mask: u32,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -110,15 +112,17 @@ impl Address {
         return match Address::_parse_string(address_string) {
             Ok((address, cidr)) => {
                 let int_value = dotted_decimal_to_int(address);
-                Ok(Address::from_int(int_value))
+                Ok(Address::from_int(int_value, Some(cidr)))
             },
             Err(err) => Err(err)
         }
     }
 
-    pub fn from_int(int_value: u32) -> Address {
+    pub fn from_int(int_value: u32, cidr: Option<u8>) -> Address {
         let class = AddressClass::get(int_value);
-        Address { address: int_value, class }
+        let cidr = cidr.unwrap_or(Address::get_default_class_cidr(class).unwrap_or(32));
+        let _mask = Address::cidr_to_mask(cidr);
+        Address { address: int_value, class, cidr, _mask }
     }
 
     fn _parse_string(input: &str) -> Result<(&str, u8), AddressError> {
@@ -179,6 +183,17 @@ impl Address {
         }
     }
 
+    /// Convert CIDR mask value to actual mask (32bit number)
+    fn cidr_to_mask(cidr: u8) -> u32 {
+        if cidr > 32 {
+            panic!("Invalid CIDR.");
+        }
+        match cidr {
+            0 => 0,
+            _ => u32::MAX << (32 - cidr)
+        }
+    }
+
     pub fn dotted_decimal_to_int(address_string: &str) -> Result<u32, AddressError> {
         let regex_dotted_decimal = Regex::new(r"^(\d+)\.(\d+)\.(\d+)\.(\d+)$").unwrap();
 
@@ -217,20 +232,24 @@ impl Address {
     ///
     /// Classes A through C have network masks: /8, /16 and /24 respectively
     ///
-    pub fn get_default_class_cidr(&self) -> u8 {
-        match self.class {
-            AddressClass::A => 8,
-            AddressClass::B => 16,
-            AddressClass::C => 24,
-            _ => panic!("Address not in A, B or C class. No default mask available.")
+    pub fn get_default_class_cidr(class: AddressClass) -> Option<u8> {
+        match class {
+            AddressClass::A => Some(8),
+            AddressClass::B => Some(16),
+            AddressClass::C => Some(24),
+            _ => None
         }
+    }
+
+    pub fn mask_to_wildcard(mask: u32) -> String {
+        int_to_dotted_decimal(&!mask)
     }
 }
 
 impl Mask {
     pub fn from_dotted_decimal(address_string: &str) -> Mask {
         let mask = Mask { address: dotted_decimal_to_int(address_string) };
-        if mask.is_valid_mask() {
+        if is_contiguous(mask.address) {
             return mask;
         } else {
             panic!("Invalid subnet mask. Must have contiguous bits.")
@@ -247,32 +266,20 @@ impl Mask {
         }
     }
 
-    pub fn dotted_decimal(&self) -> String {
-        int_to_dotted_decimal(&self.address)
-    }
-
     pub fn to_cidr(&self) -> u8 {
         int_to_cidr(&self.address, 0)
-    }
-
-    pub fn to_wildcard(&self) -> String {
-        int_to_dotted_decimal(&!self.address)
-    }
-
-    pub fn is_valid_mask(&self) -> bool {
-        is_contiguous(self.address)
     }
 }
 
 impl Display for Address {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.dotted_decimal())
+        write!(f, "{}", int_to_dotted_decimal(&self.address))
     }
 }
 
 impl Display for Mask {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.dotted_decimal())
+        write!(f, "{}", int_to_dotted_decimal(&self.address))
     }
 }
 
@@ -377,7 +384,6 @@ impl Display for AddressClass {
 
 pub struct Network {
     ip: Address,
-    mask: Mask,
     network: Address,
     broadcast: Address,
 }
@@ -387,22 +393,23 @@ impl Network {
         let network: Address;
         let broadcast: Address;
 
-        match mask.to_cidr() {
+        let cidr = mask.to_cidr();
+        match cidr {
             32 => {
-                network = Address::from_int(ip.address);
-                broadcast = Address::from_int(ip.address);
+                network = Address::from_int(ip.address, Some(cidr));
+                broadcast = Address::from_int(ip.address, Some(cidr));
             }
             _ => {
-                network = Address::from_int(ip.address & mask.address);
-                broadcast = Address::from_int(network.address | (u32::MAX >> mask.to_cidr()));
+                network = Address::from_int(ip.address & mask.address, Some(cidr));
+                broadcast = Address::from_int(network.address | (u32::MAX >> mask.to_cidr()), Some(cidr));
             }
         }
 
-        Network { ip, mask, network, broadcast }
+        Network { ip, network, broadcast }
     }
 
     pub fn from_string_cidr(network: &str, cidr: u8) -> Network {
-        let ip = Address::from_string(network).unwrap();
+        let ip = Address::from_string(format!("{}/{}", network, cidr).as_str()).unwrap();
         let mask = Mask::from_cidr(cidr);
 
         Network::new(ip, mask)
@@ -410,23 +417,23 @@ impl Network {
 
     pub fn get_first_address(&self) -> Address {
         if self.is_host() || self.is_p2p() {
-            return Address::from_int(self.network.address);
+            return Address::from_int(self.network.address, Some(self.ip.cidr));
         }
-        Address::from_int(self.network.address + 1)
+        Address::from_int(self.network.address + 1, Some(self.ip.cidr))
     }
 
     pub fn get_last_address(&self) -> Address {
         if self.is_host() || self.is_p2p() {
-            return Address::from_int(self.broadcast.address);
+            return Address::from_int(self.broadcast.address, Some(self.ip.cidr));
         }
-        Address::from_int(self.broadcast.address - 1)
+        Address::from_int(self.broadcast.address - 1, Some(self.ip.cidr))
     }
 
     pub fn get_usable_hosts(&self) -> u32 {
-        match self.mask.to_cidr() {
+        match self.ip.cidr {
             32 => 1,
             31 => 2,
-            _ => 2u32.pow(32 - self.mask.to_cidr() as u32) - 2
+            _ => 2u32.pow(32 - self.ip.cidr as u32) - 2
         }
     }
 
@@ -436,17 +443,17 @@ impl Network {
     }
 
     pub fn is_host(&self) -> bool {
-        return self.mask.address == u32::MAX;
+        return self.ip._mask == u32::MAX;
     }
 
     pub fn is_p2p(&self) -> bool {
-        return self.mask.address == u32::MAX - 1;
+        return self.ip._mask == u32::MAX - 1;
     }
 }
 
 impl Display for Network {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}", self.ip.dotted_decimal(), self.mask.to_cidr())
+        write!(f, "{}/{}", self.ip.dotted_decimal(), self.ip.cidr)
     }
 }
 
@@ -491,14 +498,14 @@ pub fn print_results(net: &Network) {
 
     println!("┌{:─^1$}┐", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
-             format!("\x1b[1;38;5;10m █ Address:    {}/{}\x1b[0m", net.ip, net.mask.to_cidr()),
+             format!("\x1b[1;38;5;10m █ Address:    {}/{}\x1b[0m", net.ip, net.ip.cidr),
              format!("\x1b[0;38;5;38m ░ Class:      {:18}\x1b[0m", net.ip.class),
              (tw + 29) / 2
     );
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
-             format!(" ░ Mask:       {:18}", net.mask),
-             format!(" ░ Wildcard:   {:18}", net.mask.to_wildcard()),
+             format!(" ░ Mask:       {:18}", net.ip._mask),
+             format!(" ░ Wildcard:   {:18}", net.ip._mask),
              (tw - 2) / 2
     );
     println!("│{0:<2$} {1:<2$}│",
@@ -533,7 +540,7 @@ pub fn print_results(net: &Network) {
     println!("│{:<1$}│", " 01            08 09            16 17            24 25            32", tw - 2);
     println!("│{:<1$}│", "\x1b[38;5;244m ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄   ▄▄  ▄▄  ▄▄  ▄▄  \x1b[0m", tw + 13);
     println!("│{:<1$}│", format!("{:>80}",
-                                 print_binary_colored(net.ip, net.mask.to_cidr())),
+                                 print_binary_colored(net.ip, net.ip.cidr)),
              tw + 34);
     //println!("│{:<1$}│", " ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤ ├┘└┘└┘└┘└┘└┘└┘└┤", tw - 2);
     println!("│{:<1$}│", " └── OCTET  1 ──┘ └── OCTET  2 ──┘ └── OCTET  3 ──┘ └── OCTET  4 ──┘", tw - 2);
@@ -665,11 +672,11 @@ mod tests {
 
     #[test]
     fn test_address_from_dec() {
-        assert_eq!(Address::from_int(0u32).address, 0u32);
-        assert_eq!(Address::from_int(16909060u32).address, 16909060u32);
-        assert_eq!(Address::from_int(524548u32).address, 524548u32);
-        assert_eq!(Address::from_int(4294967295u32).address, 4294967295u32);
-        assert_eq!(Address::from_int(4278190080u32).address, 4278190080u32);
+        assert_eq!(Address::from_int(0u32, None).address, 0u32);
+        assert_eq!(Address::from_int(16909060u32, None).address, 16909060u32);
+        assert_eq!(Address::from_int(524548u32, None).address, 524548u32);
+        assert_eq!(Address::from_int(4294967295u32, None).address, 4294967295u32);
+        assert_eq!(Address::from_int(4278190080u32, None).address, 4278190080u32);
     }
 
     #[test]
@@ -708,29 +715,11 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_dotted_decimal() {
-        for shift in 0..32u8 {
-            // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
-            let mask: u32 = 0xffffffff << shift;
-            assert_eq!(Mask::from_cidr(32-shift).dotted_decimal(), int_to_dotted_decimal(&mask));
-        }
-    }
-
-    #[test]
-    fn test_mask_to_cidr() {
-        for shift in 0..32u8 {
-            // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
-            let mask: u32 = 0xffffffff << shift;
-            assert_eq!(Mask::from_cidr(32 - shift).to_cidr(), int_to_cidr(&mask, 0));
-        }
-    }
-
-    #[test]
     fn test_mask_wildcard() {
         for shift in 0..32u8 {
             // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
             let mask: u32 = 0xffffffff << shift;
-            assert_eq!(Mask::from_cidr(32 - shift).to_wildcard(), int_to_dotted_decimal(&!mask));
+            assert_eq!(Address::mask_to_wildcard(Mask::from_cidr(32 - shift).address), int_to_dotted_decimal(&!mask));
         }
     }
 
@@ -748,58 +737,59 @@ mod tests {
 
     #[test]
     fn test_default_cidr_mask() {
-        assert_eq!(Address::from_string("0.0.0.1").unwrap().get_default_class_cidr(), 8);
-        assert_eq!(Address::from_string("127.255.255.255").unwrap().get_default_class_cidr(), 8);
-        assert_eq!(Address::from_string("128.0.0.0").unwrap().get_default_class_cidr(), 16);
-        assert_eq!(Address::from_string("191.255.255.255").unwrap().get_default_class_cidr(), 16);
-        assert_eq!(Address::from_string("192.0.0.0").unwrap().get_default_class_cidr(), 24);
-        assert_eq!(Address::from_string("223.255.255.255").unwrap().get_default_class_cidr(), 24);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("0.0.0.1").unwrap().class).unwrap(), 8);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("127.255.255.255").unwrap().class).unwrap(), 8);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("128.0.0.0").unwrap().class).unwrap(), 16);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("191.255.255.255").unwrap().class).unwrap(), 16);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("192.0.0.0").unwrap().class).unwrap(), 24);
+        assert_eq!(Address::get_default_class_cidr(Address::from_string("223.255.255.255").unwrap().class).unwrap(), 24);
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_zeros() {
-        Address::from_string("0.0.0.0").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("0.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_d_class_start() {
-        Address::from_string("224.0.0.0").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("224.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_d_class_end() {
-        Address::from_string("239.255.255.255").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("239.255.255.255").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_e_class_start() {
-        Address::from_string("240.0.0.0").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("240.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_e_class_end() {
-        Address::from_string("255.255.255.254").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("255.255.255.254").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_broadcast() {
-        Address::from_string("255.255.255.255").unwrap().get_default_class_cidr();
+        Address::get_default_class_cidr(Address::from_string("255.255.255.255").unwrap().class).unwrap();
     }
 
     #[test]
     fn test_network() {
-        let address = Address::from_string("192.0.2.2").unwrap();
+        let address = Address::from_string("192.0.2.2/24").unwrap();
         let mask = Mask::from_cidr(24);
         let network = Network::new(address, mask);
 
         assert_eq!(address.address, network.ip.address);
-        assert_eq!(mask.address, network.mask.address);
+        println!("{} = {}", int_to_dotted_decimal(&mask.address), int_to_dotted_decimal(&network.ip._mask));
+        assert_eq!(mask.address, network.ip._mask);
         assert_eq!("192.0.2.0", network.network.to_string());
         assert_eq!("192.0.2.255", network.broadcast.to_string());
 
@@ -808,7 +798,7 @@ mod tests {
         let network = Network::new(address, mask);
 
         assert_eq!(address.address, network.ip.address);
-        assert_eq!(mask.address, network.mask.address);
+        assert_eq!(mask.address, network.ip._mask);
         assert_eq!("192.0.2.2", network.network.to_string());
         assert_eq!("192.0.2.2", network.broadcast.to_string());
     }
@@ -820,7 +810,7 @@ mod tests {
         let network = Network::from_string_cidr("192.0.2.2", 24);
 
         assert_eq!(address.address, network.ip.address);
-        assert_eq!(mask.address, network.mask.address);
+        assert_eq!(mask.address, network.ip._mask);
         assert_eq!("192.0.2.0", network.network.to_string());
         assert_eq!("192.0.2.255", network.broadcast.to_string());
 
@@ -829,14 +819,14 @@ mod tests {
         let network = Network::from_string_cidr("192.0.2.2", 32);
 
         assert_eq!(address.address, network.ip.address);
-        assert_eq!(mask.address, network.mask.address);
+        assert_eq!(mask.address, network.ip._mask);
         assert_eq!("192.0.2.2", network.network.to_string());
         assert_eq!("192.0.2.2", network.broadcast.to_string());
     }
 
     #[test]
     fn test_network_first_address() {
-        let address = Address::from_string("192.0.2.2").unwrap();
+        let address = Address::from_string("192.0.2.2/24").unwrap();
         let mask = Mask::from_cidr(24);
         let network = Network::new(address, mask);
 
@@ -851,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_network_last_address() {
-        let address = Address::from_string("192.0.2.2").unwrap();
+        let address = Address::from_string("192.0.2.2/24").unwrap();
         let mask = Mask::from_cidr(24);
         let network = Network::new(address, mask);
 
