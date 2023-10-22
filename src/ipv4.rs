@@ -399,13 +399,17 @@ pub fn print_binary_colored(ip: Address, position: u8) -> String {
     let mut network_part = String::new();
     let mut host_part = String::new();
 
-    let mut ptr = &mut class_part;
+    let mut ptr= &mut class_part;
 
     for (i, char) in tmp.chars().enumerate() {
-        if i == ip.class.get_class_no_bits() as usize {
+
+        if i >= position as usize {
+            ptr = &mut host_part;
+        } else if i >= ip.class.get_class_no_bits() as usize {
             ptr = &mut network_part;
         }
-        if i == position as usize {
+
+        if i >= position as usize {
             ptr = &mut host_part;
         }
         if i % 8 == 0 {
@@ -424,6 +428,7 @@ pub fn print_binary_colored(ip: Address, position: u8) -> String {
     }
 
     //let (network_part, host_part) = replaced.split_at(position as usize);
+
 
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[38;5;214m{}\x1b[0m", class_part, network_part, host_part)
 }
