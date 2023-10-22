@@ -244,6 +244,55 @@ impl Address {
     pub fn mask_to_wildcard(mask: u32) -> String {
         int_to_dotted_decimal(&!mask)
     }
+
+    pub fn get_usable_hosts(&self) -> u32 {
+        match self.cidr {
+            32 => 1,
+            31 => 2,
+            _ => 2u32.pow(32 - self.cidr as u32) - 2
+        }
+    }
+
+    pub fn get_network_address(&self) -> u32 {
+        return match self.cidr {
+            32 => self.address,
+            _ => self.address & self._mask,
+        }
+    }
+
+    pub fn get_broadcast_address(&self) -> u32 {
+        return match self.cidr {
+            32 => self.address,
+            _ => self.address | (u32::MAX >> self.cidr),
+        }
+    }
+
+    pub fn get_first_address(&self) -> u32 {
+        match self.is_host() || self.is_p2p() {
+            true => self.get_network_address(),
+            false => self.get_network_address() + 1,
+        }
+    }
+
+    pub fn get_last_address(&self) -> u32 {
+        match self.is_host() || self.is_p2p() {
+            true => self.get_broadcast_address(),
+            false => self.get_broadcast_address() - 1,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn contains(&self, ip: Address) -> bool {
+        return self.get_network_address() <= ip.address && ip.address <= self.get_broadcast_address();
+    }
+
+    pub fn is_host(&self) -> bool {
+        return self._mask == u32::MAX;
+    }
+
+    pub fn is_p2p(&self) -> bool {
+        return self._mask == u32::MAX - 1;
+    }
 }
 
 impl Mask {
@@ -348,7 +397,7 @@ impl AddressClass {
         ];
 
         for (network, note) in address_info_map {
-            if network.contains(address) {
+            if network.ip.contains(address) {
                 info_array.push(String::from(note))
             }
         }
@@ -414,41 +463,6 @@ impl Network {
 
         Network::new(ip, mask)
     }
-
-    pub fn get_first_address(&self) -> Address {
-        if self.is_host() || self.is_p2p() {
-            return Address::from_int(self.network.address, Some(self.ip.cidr));
-        }
-        Address::from_int(self.network.address + 1, Some(self.ip.cidr))
-    }
-
-    pub fn get_last_address(&self) -> Address {
-        if self.is_host() || self.is_p2p() {
-            return Address::from_int(self.broadcast.address, Some(self.ip.cidr));
-        }
-        Address::from_int(self.broadcast.address - 1, Some(self.ip.cidr))
-    }
-
-    pub fn get_usable_hosts(&self) -> u32 {
-        match self.ip.cidr {
-            32 => 1,
-            31 => 2,
-            _ => 2u32.pow(32 - self.ip.cidr as u32) - 2
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn contains(&self, ip: Address) -> bool {
-        return self.network.address <= ip.address && ip.address <= self.broadcast.address;
-    }
-
-    pub fn is_host(&self) -> bool {
-        return self.ip._mask == u32::MAX;
-    }
-
-    pub fn is_p2p(&self) -> bool {
-        return self.ip._mask == u32::MAX - 1;
-    }
 }
 
 impl Display for Network {
@@ -510,21 +524,21 @@ pub fn print_results(net: &Network) {
     );
     println!("│{0:<2$} {1:<2$}│",
              format!(" ░ Network:    {:18}", net.network),
-             format!(" ░ First IPv4: {:18}", net.get_first_address()),
+             format!(" ░ First IPv4: {:18}", net.ip.get_first_address()),
              (tw - 2) / 2
     );
     println!("│{0:<2$} {1:<2$}│",
              format!(" ░ Broadcast:  {:18}", net.broadcast),
-             format!(" ░ Last IPv4:  {:18}", net.get_last_address()),
+             format!(" ░ Last IPv4:  {:18}", net.ip.get_last_address()),
              (tw - 2) / 2
     );
     println!("│{:^1$}│", "", tw - 2);
-    println!("│{:<1$}│", format!("\x1b[1m ░ Max hosts:  {}\x1b[0m", net.get_usable_hosts()), tw + 6);
+    println!("│{:<1$}│", format!("\x1b[1m ░ Max hosts:  {}\x1b[0m", net.ip.get_usable_hosts()), tw + 6);
     println!("│{:^1$}│", "", tw - 2);
-    if net.is_host() {
+    if net.ip.is_host() {
         println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network represents a host (/32 route).\x1b[0m", tw + 13);
     }
-    if net.is_p2p() {
+    if net.ip.is_p2p() {
         println!("│{:<1$}│", "\x1b[38;5;214m ░ Note: Network is an P2P network (/31).\x1b[0m", tw + 13);
     }
 
@@ -830,13 +844,13 @@ mod tests {
         let mask = Mask::from_cidr(24);
         let network = Network::new(address, mask);
 
-        assert_eq!("192.0.2.1", network.get_first_address().to_string());
+        assert_eq!("192.0.2.1", int_to_dotted_decimal(&network.ip.get_first_address()));
 
         let address = Address::from_string("192.0.2.2").unwrap();
         let mask = Mask::from_cidr(32);
         let network = Network::new(address, mask);
 
-        assert_eq!("192.0.2.2", network.get_first_address().to_string());
+        assert_eq!("192.0.2.2", int_to_dotted_decimal(&network.ip.get_first_address()));
     }
 
     #[test]
@@ -845,48 +859,48 @@ mod tests {
         let mask = Mask::from_cidr(24);
         let network = Network::new(address, mask);
 
-        assert_eq!("192.0.2.254", network.get_last_address().to_string());
+        assert_eq!("192.0.2.254", int_to_dotted_decimal(&network.ip.get_last_address()));
 
         let address = Address::from_string("192.0.2.2").unwrap();
         let mask = Mask::from_cidr(32);
         let network = Network::new(address, mask);
 
-        assert_eq!("192.0.2.2", network.get_last_address().to_string());
+        assert_eq!("192.0.2.2", int_to_dotted_decimal(&network.ip.get_last_address()));
     }
 
     #[test]
     fn test_network_usable_hosts() {
         let network = Network::from_string_cidr("192.0.2.2", 24);
-        assert_eq!(network.get_usable_hosts(), 254);
+        assert_eq!(network.ip.get_usable_hosts(), 254);
         let network = Network::from_string_cidr("192.0.2.2", 30);
-        assert_eq!(network.get_usable_hosts(), 2);
+        assert_eq!(network.ip.get_usable_hosts(), 2);
         let network = Network::from_string_cidr("192.0.2.2", 31);
-        assert_eq!(network.get_usable_hosts(), 2);
+        assert_eq!(network.ip.get_usable_hosts(), 2);
         let network = Network::from_string_cidr("192.0.2.2", 32);
-        assert_eq!(network.get_usable_hosts(), 1);
+        assert_eq!(network.ip.get_usable_hosts(), 1);
     }
 
     #[test]
     fn test_network_is_host() {
         let network = Network::from_string_cidr("192.0.2.2", 0);
-        assert_eq!(network.is_host(), false);
+        assert_eq!(network.ip.is_host(), false);
         let network = Network::from_string_cidr("192.0.2.2", 30);
-        assert_eq!(network.is_host(), false);
+        assert_eq!(network.ip.is_host(), false);
         let network = Network::from_string_cidr("192.0.2.2", 31);
-        assert_eq!(network.is_host(), false);
+        assert_eq!(network.ip.is_host(), false);
         let network = Network::from_string_cidr("192.0.2.2", 32);
-        assert_eq!(network.is_host(), true);
+        assert_eq!(network.ip.is_host(), true);
     }
 
     #[test]
     fn test_network_is_p2p() {
         let network = Network::from_string_cidr("192.0.2.2", 0);
-        assert_eq!(network.is_p2p(), false);
+        assert_eq!(network.ip.is_p2p(), false);
         let network = Network::from_string_cidr("192.0.2.2", 30);
-        assert_eq!(network.is_p2p(), false);
+        assert_eq!(network.ip.is_p2p(), false);
         let network = Network::from_string_cidr("192.0.2.2", 31);
-        assert_eq!(network.is_p2p(), true);
+        assert_eq!(network.ip.is_p2p(), true);
         let network = Network::from_string_cidr("192.0.2.2", 32);
-        assert_eq!(network.is_p2p(), false);
+        assert_eq!(network.ip.is_p2p(), false);
     }
 }
