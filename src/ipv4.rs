@@ -240,6 +240,7 @@ impl Address {
         match self.cidr {
             32 => 1,
             31 => 2,
+            0 => u32::MAX - 1,
             _ => 2u32.pow(32 - self.cidr as u32) - 2
         }
     }
@@ -760,6 +761,8 @@ mod tests {
         assert_eq!(network.get_usable_hosts(), 2);
         let network = Address::from_string("192.0.2.2/32").unwrap();
         assert_eq!(network.get_usable_hosts(), 1);
+        let network = Address::from_string("1.1.1.1/0").unwrap();
+        assert_eq!(network.get_usable_hosts(), 4294967294);
     }
 
     #[test]
