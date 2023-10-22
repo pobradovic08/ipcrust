@@ -5,7 +5,6 @@ mod ipv6;
 use regex::RegexSet;
 use std::env;
 use std::process::exit;
-use crate::ipv4::Address;
 
 enum IpAddressVersion {
     IpV4,
@@ -90,28 +89,13 @@ fn main() {
     }
 
     match IpAddressVersion::get_address_version(arguments[0]) {
-        IpAddressVersion::IpV4 => {
-            let ip: ipv4::Address = ipv4::Address::from_string(arguments[0]).unwrap();
-            let mut mask: ipv4::Mask = ipv4::Mask::from_cidr(Address::get_default_class_cidr(ip.class).unwrap_or(32));
-
-            match arguments.len() {
-                1 => {}
-                2 => {
-                    mask = {
-                        match arguments[1].parse::<u8>() {
-                            Ok(v) => ipv4::Mask::from_cidr(v),
-                            Err(_) => ipv4::Mask::from_dotted_decimal(arguments[1]),
-                        }
-                    }
-                }
-                _ => {
-                    panic!("Invalid input format.")
-                }
+        IpAddressVersion::IpV4 => match ipv4::Address::from_string(format!("{}/{}", arguments[0], arguments[1]).as_str()) {
+            Ok(net) => ipv4::print_results(&net),
+            Err(err) => {
+                //TODO: display useful error message
+                panic!("Invalid input: {:?}", err)
             }
-
-            let net = ipv4::Network::new(ip, mask);
-            ipv4::print_results(&net);
-        }
+        },
         IpAddressVersion::IpV6 => match ipv6::AddressV6::from_string(&args[1]) {
             Ok(net) => ipv6::print_results(&net),
             Err(err) => {
