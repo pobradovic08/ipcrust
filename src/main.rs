@@ -90,7 +90,7 @@ fn main() {
 
     match IpAddressVersion::get_address_version(arguments[0]) {
         IpAddressVersion::IpV4 => {
-            let ip: ipv4::Address = ipv4::Address::from_string(arguments[0]);
+            let ip: ipv4::Address = ipv4::Address::from_string(arguments[0]).unwrap();
             let mut mask: ipv4::Mask = ipv4::Mask::from_cidr(ip.get_default_class_cidr());
 
             match arguments.len() {
