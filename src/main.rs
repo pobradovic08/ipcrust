@@ -89,7 +89,7 @@ fn main() {
     }
 
     match IpAddressVersion::get_address_version(arguments[0]) {
-        IpAddressVersion::IpV4 => match ipv4::Address::from_string(format!("{}/{}", arguments[0], arguments[1]).as_str()) {
+        IpAddressVersion::IpV4 => match ipv4::AddressV4::from_string(format!("{}/{}", arguments[0], arguments[1]).as_str()) {
             Ok(net) => ipv4::print_results(&net),
             Err(err) => {
                 //TODO: display useful error message
