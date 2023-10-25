@@ -95,29 +95,29 @@ pub enum AddressError {
 }
 
 #[derive(Copy, Clone)]
-pub struct Address {
+pub struct AddressV4 {
     address: u32,
     cidr: u8,
     pub class: AddressClass, //TODO: make private
     _mask: u32,
 }
 
-impl Address {
-    pub fn from_string(address_string: &str) -> Result<Address, AddressError> {
-        return match Address::_parse_string(address_string) {
+impl AddressV4 {
+    pub fn from_string(address_string: &str) -> Result<AddressV4, AddressError> {
+        return match AddressV4::_parse_string(address_string) {
             Ok((address, cidr)) => {
                 let int_value = dotted_decimal_to_int(address);
-                Ok(Address::from_int(int_value, Some(cidr)))
+                Ok(AddressV4::from_int(int_value, Some(cidr)))
             },
             Err(err) => Err(err)
         }
     }
 
-    pub fn from_int(int_value: u32, cidr: Option<u8>) -> Address {
+    pub fn from_int(int_value: u32, cidr: Option<u8>) -> AddressV4 {
         let class = AddressClass::get(int_value);
-        let cidr = cidr.unwrap_or(Address::get_default_class_cidr(class).unwrap_or(32));
-        let _mask = Address::cidr_to_mask(cidr);
-        Address { address: int_value, class, cidr, _mask }
+        let cidr = cidr.unwrap_or(AddressV4::get_default_class_cidr(class).unwrap_or(32));
+        let _mask = AddressV4::cidr_to_mask(cidr);
+        AddressV4 { address: int_value, class, cidr, _mask }
     }
 
     fn _parse_string(input: &str) -> Result<(&str, u8), AddressError> {
@@ -136,10 +136,10 @@ impl Address {
                 }
 
                 //TODO: return decimal value instead of string
-                let address_dec = Address::dotted_decimal_to_int(address)?;
+                let address_dec = AddressV4::dotted_decimal_to_int(address)?;
 
                 //Try to parse CIDR as `u8`
-                return Ok((address, Address::_parse_mask_format(parts[1])?));
+                return Ok((address, AddressV4::_parse_mask_format(parts[1])?));
             },
             _ => Err(AddressError::InvalidAddress),
         }
@@ -274,7 +274,7 @@ impl Address {
     }
 
     #[allow(dead_code)]
-    pub fn contains(&self, ip: Address) -> bool {
+    pub fn contains(&self, ip: AddressV4) -> bool {
         return self.get_network_address() <= ip.address && ip.address <= self.get_broadcast_address();
     }
 
@@ -287,7 +287,7 @@ impl Address {
     }
 }
 
-impl Display for Address {
+impl Display for AddressV4 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", int_to_dotted_decimal(&self.address))
     }
@@ -334,11 +334,11 @@ impl AddressClass {
         };
     }
 
-    fn get_additional_info(address: Address) -> Vec<String> {
-        let n = |network: &str| Address::from_string(network).unwrap();
+    fn get_additional_info(address: AddressV4) -> Vec<String> {
+        let n = |network: &str| AddressV4::from_string(network).unwrap();
         let mut info_array: Vec<String> = vec!();
 
-        let address_info_map: [(Address, &str); 16] = [
+        let address_info_map: [(AddressV4, &str); 16] = [
             (n("0.0.0.0/8"), "Source hosts on 'this' network - RFC1122"),
             (n("10.0.0.0/8"), "Class A private address - RFC1918"),
             (n("100.64.0.0/10"), "Shared address space - RFC6598"),
@@ -392,7 +392,7 @@ impl Display for AddressClass {
     }
 }
 
-pub fn print_binary_colored(ip: Address, position: u8) -> String {
+pub fn print_binary_colored(ip: AddressV4, position: u8) -> String {
     let tmp = format!("{:032b}", ip.address);
 
     let mut class_part = String::new();
@@ -433,7 +433,7 @@ pub fn print_binary_colored(ip: Address, position: u8) -> String {
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[38;5;214m{}\x1b[0m", class_part, network_part, host_part)
 }
 
-pub fn print_results(net: &Address) {
+pub fn print_results(net: &AddressV4) {
     let tw = 71;
 
     println!("┌{:─^1$}┐", "", tw - 2);
@@ -445,7 +445,7 @@ pub fn print_results(net: &Address) {
     println!("│{:^1$}│", "", tw - 2);
     println!("│{0:<2$} {1:<2$}│",
              format!(" ░ Mask:       {:18}", int_to_dotted_decimal(&net._mask)),
-             format!(" ░ Wildcard:   {:18}", Address::mask_to_wildcard(net._mask)),
+             format!(" ░ Wildcard:   {:18}", AddressV4::mask_to_wildcard(net._mask)),
              (tw - 2) / 2
     );
     println!("│{0:<2$} {1:<2$}│",
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_print() {
-        let network = Address::from_string("192.0.2.2/30").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/30").unwrap();
         print_results(&network);
     }
 
@@ -562,76 +562,76 @@ mod tests {
 
     #[test]
     fn test_ip_class() {
-        assert_eq!(AddressClass::get(Address::from_string("0.0.0.0").unwrap().address), AddressClass::ZERO);
-        assert_eq!(AddressClass::get(Address::from_string("0.0.0.1").unwrap().address), AddressClass::A);
-        assert_eq!(AddressClass::get(Address::from_string("127.255.255.255").unwrap().address), AddressClass::A);
-        assert_eq!(AddressClass::get(Address::from_string("128.0.0.0").unwrap().address), AddressClass::B);
-        assert_eq!(AddressClass::get(Address::from_string("191.255.255.255").unwrap().address), AddressClass::B);
-        assert_eq!(AddressClass::get(Address::from_string("192.0.0.0").unwrap().address), AddressClass::C);
-        assert_eq!(AddressClass::get(Address::from_string("223.255.255.255").unwrap().address), AddressClass::C);
-        assert_eq!(AddressClass::get(Address::from_string("224.0.0.0").unwrap().address), AddressClass::D);
-        assert_eq!(AddressClass::get(Address::from_string("239.255.255.255").unwrap().address), AddressClass::D);
-        assert_eq!(AddressClass::get(Address::from_string("240.0.0.0").unwrap().address), AddressClass::E);
-        assert_eq!(AddressClass::get(Address::from_string("255.255.255.254").unwrap().address), AddressClass::E);
-        assert_eq!(AddressClass::get(Address::from_string("255.255.255.255").unwrap().address), AddressClass::BROADCAST);
+        assert_eq!(AddressClass::get(AddressV4::from_string("0.0.0.0").unwrap().address), AddressClass::ZERO);
+        assert_eq!(AddressClass::get(AddressV4::from_string("0.0.0.1").unwrap().address), AddressClass::A);
+        assert_eq!(AddressClass::get(AddressV4::from_string("127.255.255.255").unwrap().address), AddressClass::A);
+        assert_eq!(AddressClass::get(AddressV4::from_string("128.0.0.0").unwrap().address), AddressClass::B);
+        assert_eq!(AddressClass::get(AddressV4::from_string("191.255.255.255").unwrap().address), AddressClass::B);
+        assert_eq!(AddressClass::get(AddressV4::from_string("192.0.0.0").unwrap().address), AddressClass::C);
+        assert_eq!(AddressClass::get(AddressV4::from_string("223.255.255.255").unwrap().address), AddressClass::C);
+        assert_eq!(AddressClass::get(AddressV4::from_string("224.0.0.0").unwrap().address), AddressClass::D);
+        assert_eq!(AddressClass::get(AddressV4::from_string("239.255.255.255").unwrap().address), AddressClass::D);
+        assert_eq!(AddressClass::get(AddressV4::from_string("240.0.0.0").unwrap().address), AddressClass::E);
+        assert_eq!(AddressClass::get(AddressV4::from_string("255.255.255.254").unwrap().address), AddressClass::E);
+        assert_eq!(AddressClass::get(AddressV4::from_string("255.255.255.255").unwrap().address), AddressClass::BROADCAST);
     }
 
     #[test]
     fn test_mask_parsing() {
-        assert_eq!(Address::_parse_mask_format("255.255.255.0").unwrap(), 24);
-        assert_eq!(Address::_parse_mask_format("255.255.255.255").unwrap(), 32);
-        assert_eq!(Address::_parse_mask_format("24").unwrap(), 24);
+        assert_eq!(AddressV4::_parse_mask_format("255.255.255.0").unwrap(), 24);
+        assert_eq!(AddressV4::_parse_mask_format("255.255.255.255").unwrap(), 32);
+        assert_eq!(AddressV4::_parse_mask_format("24").unwrap(), 24);
     }
 
     #[test]
     fn test_mask_parsing_invalid() {
-        assert!(matches!(Address::_parse_mask_format(""), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_mask_format("asdf"), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_mask_format("33"), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_mask_format("-1"), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_mask_format("255.255.0.255"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_mask_format(""), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_mask_format("asdf"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_mask_format("33"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_mask_format("-1"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_mask_format("255.255.0.255"), Err(AddressError::InvalidCidr)));
     }
 
     #[test]
     fn test_string_parsing() {
-        assert_eq!(Address::_parse_string("10.0.0.0/255.255.255.0").unwrap(), ("10.0.0.0", 24));
-        assert_eq!(Address::_parse_string("10.0.0.0/24").unwrap(), ("10.0.0.0", 24));
-        assert_eq!(Address::_parse_string("10.0.0.0/32").unwrap(), ("10.0.0.0", 32));
-        assert_eq!(Address::_parse_string("10.0.0.0").unwrap(), ("10.0.0.0", 32));
+        assert_eq!(AddressV4::_parse_string("10.0.0.0/255.255.255.0").unwrap(), ("10.0.0.0", 24));
+        assert_eq!(AddressV4::_parse_string("10.0.0.0/24").unwrap(), ("10.0.0.0", 24));
+        assert_eq!(AddressV4::_parse_string("10.0.0.0/32").unwrap(), ("10.0.0.0", 32));
+        assert_eq!(AddressV4::_parse_string("10.0.0.0").unwrap(), ("10.0.0.0", 32));
     }
 
     #[test]
     fn test_string_parsing_invalid() {
-        assert!(matches!(Address::_parse_string("10.0.0.0/255.255.0.255"), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_string("10.0.0.0/244"), Err(AddressError::InvalidCidr)));
-        assert!(matches!(Address::_parse_string("10.256.0.0/24"), Err(AddressError::InvalidAddress)));
-        assert!(matches!(Address::_parse_string("10.10.0./24"), Err(AddressError::InvalidAddress)));
-        assert!(matches!(Address::_parse_string("10.10.0/24"), Err(AddressError::InvalidAddress)));
-        assert!(matches!(Address::_parse_string("asd/24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::_parse_string("10.0.0.0/255.255.0.255"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_string("10.0.0.0/244"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::_parse_string("10.256.0.0/24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::_parse_string("10.10.0./24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::_parse_string("10.10.0/24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::_parse_string("asd/24"), Err(AddressError::InvalidAddress)));
     }
 
     #[test]
     fn test_address_from_dec() {
-        assert_eq!(Address::from_int(0u32, None).address, 0u32);
-        assert_eq!(Address::from_int(16909060u32, None).address, 16909060u32);
-        assert_eq!(Address::from_int(524548u32, None).address, 524548u32);
-        assert_eq!(Address::from_int(4294967295u32, None).address, 4294967295u32);
-        assert_eq!(Address::from_int(4278190080u32, None).address, 4278190080u32);
+        assert_eq!(AddressV4::from_int(0u32, None).address, 0u32);
+        assert_eq!(AddressV4::from_int(16909060u32, None).address, 16909060u32);
+        assert_eq!(AddressV4::from_int(524548u32, None).address, 524548u32);
+        assert_eq!(AddressV4::from_int(4294967295u32, None).address, 4294967295u32);
+        assert_eq!(AddressV4::from_int(4278190080u32, None).address, 4278190080u32);
     }
 
     #[test]
     fn test_address_from_string() {
-        assert_eq!(Address::from_string("0.0.0.0").unwrap().address, 0u32);
-        assert_eq!(Address::from_string("1.2.3.4").unwrap().address, 16909060u32);
-        assert_eq!(Address::from_string("0.8.1.4").unwrap().address, 524548u32);
-        assert_eq!(Address::from_string("255.255.255.255").unwrap().address, 4294967295u32);
-        assert_eq!(Address::from_string("255.0.0.0").unwrap().address, 4278190080u32);
+        assert_eq!(AddressV4::from_string("0.0.0.0").unwrap().address, 0u32);
+        assert_eq!(AddressV4::from_string("1.2.3.4").unwrap().address, 16909060u32);
+        assert_eq!(AddressV4::from_string("0.8.1.4").unwrap().address, 524548u32);
+        assert_eq!(AddressV4::from_string("255.255.255.255").unwrap().address, 4294967295u32);
+        assert_eq!(AddressV4::from_string("255.0.0.0").unwrap().address, 4278190080u32);
     }
 
     #[test]
     fn test_address_dotted_decimal() {
         for ip in ["0.0.0.0", "1.2.3.4", "0.8.1.4", "255.255.255.255", "255.0.0.0"] {
-            let address = Address::from_string(ip).unwrap();
+            let address = AddressV4::from_string(ip).unwrap();
             assert_eq!(int_to_dotted_decimal(&address.address), ip);
         }
     }
@@ -641,17 +641,17 @@ mod tests {
         for shift in 0..32u8 {
             // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
             let mask = 0xffffffff << shift;
-            assert_eq!(Address::cidr_to_mask(32-shift), mask);
+            assert_eq!(AddressV4::cidr_to_mask(32-shift), mask);
         }
     }
 
     #[test]
     fn test_mask_from_string_and_cidr() {
-        assert_eq!(dotted_decimal_to_int("0.0.0.0"), Address::cidr_to_mask(0));
-        assert_eq!(dotted_decimal_to_int("255.255.255.0"), Address::cidr_to_mask(24));
-        assert_eq!(dotted_decimal_to_int("255.255.0.0"), Address::cidr_to_mask(16));
-        assert_eq!(dotted_decimal_to_int("255.255.255.255"), Address::cidr_to_mask(32));
-        assert_eq!(dotted_decimal_to_int("255.255.255.254"), Address::cidr_to_mask(31));
+        assert_eq!(dotted_decimal_to_int("0.0.0.0"), AddressV4::cidr_to_mask(0));
+        assert_eq!(dotted_decimal_to_int("255.255.255.0"), AddressV4::cidr_to_mask(24));
+        assert_eq!(dotted_decimal_to_int("255.255.0.0"), AddressV4::cidr_to_mask(16));
+        assert_eq!(dotted_decimal_to_int("255.255.255.255"), AddressV4::cidr_to_mask(32));
+        assert_eq!(dotted_decimal_to_int("255.255.255.254"), AddressV4::cidr_to_mask(31));
     }
 
     #[test]
@@ -659,72 +659,72 @@ mod tests {
         for shift in 0..32u8 {
             // Make all 1 through 32 masks by bitwise shifting down from 32 CIDR (0xffffffff)
             let mask: u32 = 0xffffffff << shift;
-            assert_eq!(Address::mask_to_wildcard(Address::cidr_to_mask(32 - shift)), int_to_dotted_decimal(&!mask));
+            assert_eq!(AddressV4::mask_to_wildcard(AddressV4::cidr_to_mask(32 - shift)), int_to_dotted_decimal(&!mask));
         }
     }
 
     #[test]
     #[should_panic]
     fn test_mask_invalid_cidr() {
-        Address::cidr_to_mask(33);
+        AddressV4::cidr_to_mask(33);
     }
 
     #[test]
     fn test_default_cidr_mask() {
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("0.0.0.1").unwrap().class).unwrap(), 8);
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("127.255.255.255").unwrap().class).unwrap(), 8);
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("128.0.0.0").unwrap().class).unwrap(), 16);
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("191.255.255.255").unwrap().class).unwrap(), 16);
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("192.0.0.0").unwrap().class).unwrap(), 24);
-        assert_eq!(Address::get_default_class_cidr(Address::from_string("223.255.255.255").unwrap().class).unwrap(), 24);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("0.0.0.1").unwrap().class).unwrap(), 8);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("127.255.255.255").unwrap().class).unwrap(), 8);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("128.0.0.0").unwrap().class).unwrap(), 16);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("191.255.255.255").unwrap().class).unwrap(), 16);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("192.0.0.0").unwrap().class).unwrap(), 24);
+        assert_eq!(AddressV4::get_default_class_cidr(AddressV4::from_string("223.255.255.255").unwrap().class).unwrap(), 24);
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_zeros() {
-        Address::get_default_class_cidr(Address::from_string("0.0.0.0").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("0.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_d_class_start() {
-        Address::get_default_class_cidr(Address::from_string("224.0.0.0").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("224.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_d_class_end() {
-        Address::get_default_class_cidr(Address::from_string("239.255.255.255").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("239.255.255.255").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_e_class_start() {
-        Address::get_default_class_cidr(Address::from_string("240.0.0.0").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("240.0.0.0").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_e_class_end() {
-        Address::get_default_class_cidr(Address::from_string("255.255.255.254").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("255.255.255.254").unwrap().class).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_default_cidr_mask_broadcast() {
-        Address::get_default_class_cidr(Address::from_string("255.255.255.255").unwrap().class).unwrap();
+        AddressV4::get_default_class_cidr(AddressV4::from_string("255.255.255.255").unwrap().class).unwrap();
     }
 
     #[test]
     fn test_network() {
-        let address = Address::from_string("192.0.2.2/24").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/24").unwrap();
 
         assert_eq!(address.address, dotted_decimal_to_int("192.0.2.2"));
         assert_eq!(address.cidr, 24);
         assert_eq!("192.0.2.0", int_to_dotted_decimal(&address.get_network_address()));
         assert_eq!("192.0.2.255", int_to_dotted_decimal(&address.get_broadcast_address()));
 
-        let address = Address::from_string("192.0.2.2/32").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/32").unwrap();
 
         assert_eq!(address.address, dotted_decimal_to_int("192.0.2.2"));
         assert_eq!(address.cidr, 32);
@@ -734,63 +734,63 @@ mod tests {
 
     #[test]
     fn test_network_first_address() {
-        let address = Address::from_string("192.0.2.2/24").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/24").unwrap();
         assert_eq!("192.0.2.1", int_to_dotted_decimal(&address.get_first_address()));
 
-        let address = Address::from_string("192.0.2.2/31").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/31").unwrap();
         assert_eq!("192.0.2.2", int_to_dotted_decimal(&address.get_first_address()));
 
-        let address = Address::from_string("192.0.2.2/32").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!("192.0.2.2", int_to_dotted_decimal(&address.get_first_address()));
     }
 
     #[test]
     fn test_network_last_address() {
-        let address = Address::from_string("192.0.2.2/24").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/24").unwrap();
         assert_eq!("192.0.2.254", int_to_dotted_decimal(&address.get_last_address()));
 
-        let address = Address::from_string("192.0.2.2/31").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/31").unwrap();
         assert_eq!("192.0.2.3", int_to_dotted_decimal(&address.get_last_address()));
 
-        let address = Address::from_string("192.0.2.2/32").unwrap();
+        let address = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!("192.0.2.2", int_to_dotted_decimal(&address.get_last_address()));
     }
 
     #[test]
     fn test_network_usable_hosts() {
-        let network = Address::from_string("192.0.2.2/24").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/24").unwrap();
         assert_eq!(network.get_usable_hosts(), 254);
-        let network = Address::from_string("192.0.2.2/30").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/30").unwrap();
         assert_eq!(network.get_usable_hosts(), 2);
-        let network = Address::from_string("192.0.2.2/31").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/31").unwrap();
         assert_eq!(network.get_usable_hosts(), 2);
-        let network = Address::from_string("192.0.2.2/32").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!(network.get_usable_hosts(), 1);
-        let network = Address::from_string("1.1.1.1/0").unwrap();
+        let network = AddressV4::from_string("1.1.1.1/0").unwrap();
         assert_eq!(network.get_usable_hosts(), 4294967294);
     }
 
     #[test]
     fn test_network_is_host() {
-        let network = Address::from_string("192.0.2.2/0").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/0").unwrap();
         assert_eq!(network.is_host(), false);
-        let network = Address::from_string("192.0.2.2/30").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/30").unwrap();
         assert_eq!(network.is_host(), false);
-        let network = Address::from_string("192.0.2.2/31").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/31").unwrap();
         assert_eq!(network.is_host(), false);
-        let network = Address::from_string("192.0.2.2/32").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!(network.is_host(), true);
     }
 
     #[test]
     fn test_network_is_p2p() {
-        let network = Address::from_string("192.0.2.2/0").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/0").unwrap();
         assert_eq!(network.is_p2p(), false);
-        let network = Address::from_string("192.0.2.2/30").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/30").unwrap();
         assert_eq!(network.is_p2p(), false);
-        let network = Address::from_string("192.0.2.2/31").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/31").unwrap();
         assert_eq!(network.is_p2p(), true);
-        let network = Address::from_string("192.0.2.2/32").unwrap();
+        let network = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!(network.is_p2p(), false);
     }
 }
