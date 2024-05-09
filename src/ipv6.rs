@@ -30,7 +30,7 @@ pub struct AddressV6 {
 
 impl AddressV6 {
 
-    /// Parses an IPv6 address from a string.
+    /// Parses an IPv6 address from a string and returns `AddressV6` struct
     ///
     /// # Arguments
     /// * `input` - A string slice that holds the IPv6 address.
@@ -142,11 +142,22 @@ impl AddressV6 {
         }
     }
 
+    /// Returns `AddressV6` struct for a given CIDR and decimal address value
+    ///
+    /// # Arguments
+    /// * `address` - Integer representing the address value
+    /// * `cidr` - Integer representing mask part in CIDR notation. Valid value is between 0-128
+    ///
+    /// # Returns
+    /// Returns a Result containing the parsed `AddressV6` if successful,
+    /// or an `AddresskV6Error` if the input values are not valid.
     pub fn from_dec(address: u128, cidr: Option<u8>) -> Result<AddressV6, AddressV6Error> {
+        // CIDR range is outside valid range
         let cidr = cidr.unwrap_or(128u8);
         if cidr > 128 {
             return Err(AddressV6Error::InvalidCidr);
         }
+        // Return the `AddressV6` struct
         Ok(AddressV6 {
             address,
             cidr,
@@ -155,26 +166,55 @@ impl AddressV6 {
         })
     }
 
+    /// Parses an string that represents the IPv6 address and returns `(address, cidr)` tuple.
+    ///
+    /// # Arguments
+    /// * `input` - A string slice that holds the IPv6 address. Can be with or without mask (CIDR).
+    ///
+    /// # Returns
+    /// Returns a Result containing `(address, cidr)` tuple if parsing is successful,
+    /// or an `AddresskV6Error` if the input string is not a valid.
+    /// Validation of `address` string is superficial so returned `address` value is
+    /// *NOT* guaranteed to be valid IPv6 address.
+    ///
+    /// # Example
+    /// ```
+    /// let str_address_only_valid = "1234:1234::abcd:ef";
+    /// let str_address_cidr_valid = "1234:1234::abcd:ef/64";
+    /// let str_address_invalid = "1234:1234::abcd:ef/64/128";
+    /// // Valid - Result OK
+    /// let (address, cidr) = AddressV6::_parse_string(str_address_only_valid).unwrap();
+    /// // Valid - Result OK, mask defaults to /128
+    /// let (address, cidr) = AddressV6::_parse_string(str_address_only_valid).unwrap();
+    /// // Invalid - Result Err
+    /// let (address, cidr) = AddressV6::_parse_string(str_address_only_valid).unwrap();
+    /// ```
     fn _parse_string(input: &str) -> Result<(&str, u8), AddressV6Error> {
-        let parts: Vec<&str> = input.split(|c| c == '/').collect();
-        let address: &str = parts[0];
+        // Regex for loose validation (does it look like a valid address) of IPv6 format
         let regex_address_v6 = Regex::new(r"^([A-Fa-f0-9:]{1,4}:+)+([A-Fa-f0-9]{1,4})?$").unwrap();
 
+        // Split the string into address part and mask part
+        let parts: Vec<&str> = input.split(|c| c == '/').collect();
+        let address: &str = parts[0];
+
         match parts.len() {
-            // IP: <part[0]>
+            // Only address part is provided: <part[0]>
             1 => return Ok((address, 128u8)),
-            // IP: <part[0]>/<part[1]>
+            // Both address and mask parts are provided: <part[0]>/<part[1]>
             2 => {
+                // Test if address string looks like IPv6 address
                 if !regex_address_v6.is_match(address) {
                     return Err(AddressV6Error::InvalidAddress);
                 }
 
-                //Try to parse CIDR as `u8`
+                // Try to parse CIDR as `u8` and return the `(address, cidr)` tuple
+                // Or raise the `AddressV6Error`
                 return match parts[1].parse::<u8>() {
                     Ok(cidr) => Ok((address, cidr)),
                     Err(_) => Err(AddressV6Error::InvalidCidr),
                 }
             },
+            // If the string has multiple `/` characters, it is an invalid IPv6 address.
             _ => Err(AddressV6Error::InvalidAddress),
         }
     }
@@ -189,18 +229,32 @@ impl AddressV6 {
     /// let string = address.to_string(AddressFormat::FormatShort);
     /// ```
 
+    /// Return the first usable address - all host bits set to 0
+    /// For IPv6 this is the address of the network
     pub fn get_first_address(&self) -> u128 {
         self.address & self._mask
     }
 
+    /// Return the last usable address - all host bits set to 1
     pub fn get_last_address(&self) -> u128 {
+        // Invert the mask (to get all 1 bits for hosts part)
+        // and return bitwise OR of it and address
         self.address | (!self._mask)
     }
 
+    /// Checks if the `AddressV6` struct provided as an argument is contained in the `AddressV6`
+    ///
+    /// # Arguments
+    /// * `ip` - Subject of the test
+    ///
+    /// # Returns
+    /// True if the provided `AddressV6` being tested is within the [first, last] addresses
+    /// of the original `AddressV6`
     pub fn contains(&self, ip: &AddressV6) -> bool {
         return self.get_first_address() <= ip.address && ip.address <= self.get_last_address();
     }
 
+    /// Returns the string representation of the IPv6 address
     pub fn to_string(&self, format: AddressFormat) -> String {
         AddressV6::dec_to_str(self.address, format)
     }
@@ -219,16 +273,16 @@ impl AddressV6 {
         self.get_eui64_num() & eui64_mask == eui64_mask
     }
 
-    ///
-    /// Truncate IPv6 address to last 64bits (Interface ID)
-    ///
+    /**
+    Truncate IPv6 address to last 64bits (Interface ID)
+    */
     fn get_eui64_num(&self) -> u64 {
         self.address as u64
     }
 
-    ///
-    /// Generate EUI-64 string in `aaaa:bbbb:cccc:dddd` format
-    ///
+    /**
+    Generate EUI-64 string in `aaaa:bbbb:cccc:dddd` format
+    */
     pub fn get_eui64_string(&self) -> String {
         let eui64_num = self.get_eui64_num();
 
@@ -242,11 +296,11 @@ impl AddressV6 {
         string_array.join(":")
     }
 
-    ///
-    /// Calculate the EUI-48 (MAC Address) that was used for generating EUI-64
-    /// 1. Invert the U/L bit
-    /// 2. Remove 0xfffe (the 24 through 48 bits)
-    ///
+    /**
+    Calculate the EUI-48 (MAC Address) that was used for generating EUI-64
+    1. Invert the U/L bit
+    2. Remove 0xfffe (the 24 through 48 bits)
+    */
     fn get_eui48_num(&self) -> u64 {
         // 0b0000001000000000000000000000000000000000000000000000000000000000
         let eui48_flip_mask = 0x200000000000000;
@@ -261,9 +315,9 @@ impl AddressV6 {
         part_1 + part_2
     }
 
-    ///
-    /// Generate EUI-48 string (MAC address) in `aa:bb:cc:dd:ee:ff` format
-    ///
+    /**
+    Generate EUI-48 string (MAC address) in `aa:bb:cc:dd:ee:ff` format
+    */
     pub fn get_eui48_string(&self) -> String {
         let eui48_num = self.get_eui48_num();
 
@@ -276,6 +330,11 @@ impl AddressV6 {
         string_array.join(":")
     }
 
+    /**
+    Convert CIDR mask representation to an actual 128bit integer mask
+    # Arguments
+    * `cidr` - CIDR mask notation
+    */
     fn cidr_to_mask(cidr: u8) -> u128 {
         match cidr {
             0 => 0,
@@ -339,12 +398,14 @@ impl AddressV6 {
     `location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
     `location` represents the longest contiguous occurrence
     `location_tmp` represents the temporary counter
+    ```
 
                location.1 = 3
                    |---|
      1234:0:0:1234:0:0:0:1234
                        ^
                location.0 = 7
+    ```
      */
     pub fn find_contiguous_zeros(array: &[u16; 8]) -> (usize, usize) {
 
@@ -390,10 +451,12 @@ impl Display for AddressV6 {
     }
 }
 
-/// Represents the possible errors that can occur during IPv6 address parsing.
-///
-/// - `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
-/// - InvalidCidr: Indicates that the CIDR value in the network string is invalid.
+/**
+Represents the possible errors that can occur during IPv6 address parsing.
+
+- `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
+- `InvalidCidr`: Indicates that the CIDR value in the network string is invalid.
+*/
 #[derive(Debug, PartialEq)]
 pub enum AddressV6Error {
     InvalidAddress,
