@@ -136,7 +136,8 @@ impl AddressV4 {
                 }
 
                 //TODO: return decimal value instead of string
-                //let address_dec = AddressV4::dotted_decimal_to_int(address)?;
+                //Used as a check - rising exceptions
+                let _address_dec = AddressV4::dotted_decimal_to_int(address)?;
 
                 //Try to parse CIDR as `u8`
                 return Ok((address, AddressV4::_parse_mask_format(parts[1])?));
