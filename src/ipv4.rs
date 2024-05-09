@@ -8,8 +8,8 @@ use regex::Regex;
 pub fn int_to_dotted_decimal(integer: &u32) -> String {
     format!("{}.{}.{}.{}",
             integer >> 24,
-            (integer >> 16) & 0xff,
-            (integer >> 8) & 0xff,
+            (integer >> 16) & 0xffu32,
+            (integer >> 8) & 0xffu32,
             integer & 0xff,
     )
 }
@@ -136,7 +136,7 @@ impl AddressV4 {
                 }
 
                 //TODO: return decimal value instead of string
-                let address_dec = AddressV4::dotted_decimal_to_int(address)?;
+                //let address_dec = AddressV4::dotted_decimal_to_int(address)?;
 
                 //Try to parse CIDR as `u8`
                 return Ok((address, AddressV4::_parse_mask_format(parts[1])?));
