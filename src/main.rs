@@ -69,6 +69,7 @@ fn main() {
             match parts.len() {
                 1 => {
                     arguments.insert(0, parts[0]);
+                    //FIXME: Use a default CIDR if no CIDR is entered
                 }
                 2 => {
                     arguments.insert(0, parts[0]);
