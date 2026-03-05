@@ -17,27 +17,27 @@ pub enum AddressFormat {
 /// This struct represents an IPv6 address with mask (CIDR).
 ///
 /// It contains the following fields:
-/// - address: The numerical representation of the IPv6 address.
-/// - cidr: The CIDR notation of the network.
-/// - class: The class of the IPv6 address.
+/// - `address`: The numerical representation of the IPv6 address.
+/// - `cidr`: The CIDR notation of the network.
+/// - `class`: The class of the IPv6 address.
 #[derive(Copy, Clone, PartialEq)]
 pub struct AddressV6 {
     address: u128,
+    _mask: u128,
     cidr: u8,
     class: AddressClassV6,
-    _mask: u128,
 }
 
 impl AddressV6 {
 
-    /// Parses an IPv6 address from a string and returns `AddressV6` struct
+    /// Parses an IPv6 address from a string and returns [`AddressV6`] struct
     ///
     /// # Arguments
     /// * `input` - A string slice that holds the IPv6 address.
     ///
     /// # Returns
-    /// Returns a Result containing the parsed `AddressV6` if successful,
-    /// or an `AddresskV6Error` if the input string is not a valid IPv6 address.
+    /// Returns a Result containing the parsed [`AddressV6`] if successful,
+    /// or an [`AddressV6Error`] if the input string is not a valid IPv6 address.
     pub fn from_string(input: &str) -> Result<AddressV6, AddressV6Error> {
         // Initialize default values
         // Set all bits for IPv6 to 0 to allow bitwise manipulation
@@ -47,7 +47,7 @@ impl AddressV6 {
         let mut ip_parts: Vec<&str> = Vec::new();
 
         // Parse input string to address part and cidr part
-        let (address_str, cidr) = AddressV6::_parse_string(input)?;
+        let (address_str, cidr) = AddressV6::_parse_raw_string(input)?;
 
         // If there is double colon split the input string in two parts
         let string_parts = &address_str.split("::").collect::<Vec<&str>>()[..];
@@ -76,6 +76,9 @@ impl AddressV6 {
                     // Prepend 0 parts until all 8 parts are present in `ip_parts`
                     ["", b] => {
                         part_b = b.split(":").collect::<Vec<&str>>();
+                        if part_b.len() >= 8 {
+                            return Err(AddressV6Error::InvalidAddress);
+                        }
                         for _ in 0..(8 - part_b.len()) {
                             part_a.push("0");
                         }
@@ -85,6 +88,9 @@ impl AddressV6 {
                     // Append 0 parts until all 8 parts are present in `ip_parts`
                     [a, ""] => {
                         part_a = a.split(":").collect::<Vec<&str>>();
+                        if part_a.len() >= 8 {
+                            return Err(AddressV6Error::InvalidAddress);
+                        }
                         for _ in 0..(8 - part_a.len()) {
                             part_b.push("0");
                         }
@@ -95,6 +101,9 @@ impl AddressV6 {
                     _ => {
                         part_a = string_parts[0].split(":").collect::<Vec<&str>>();
                         part_b = string_parts[1].split(":").collect::<Vec<&str>>();
+                        if part_a.len() + part_b.len() >= 8 {
+                            return Err(AddressV6Error::InvalidAddress);
+                        }
                         for _ in 0..(8 - (part_a.len() + part_b.len())) {
                             part_a.push("0");
                         }
@@ -142,22 +151,22 @@ impl AddressV6 {
         }
     }
 
-    /// Returns `AddressV6` struct for a given CIDR and decimal address value
+    /// Returns [`AddressV6`] struct for a given CIDR and decimal address value
     ///
     /// # Arguments
     /// * `address` - Integer representing the address value
     /// * `cidr` - Integer representing mask part in CIDR notation. Valid value is between 0-128
     ///
     /// # Returns
-    /// Returns a Result containing the parsed `AddressV6` if successful,
-    /// or an `AddresskV6Error` if the input values are not valid.
+    /// Returns a Result containing the parsed [`AddressV6`] if successful,
+    /// or an [`AddressV6Error`] if the input values are not valid.
     pub fn from_dec(address: u128, cidr: Option<u8>) -> Result<AddressV6, AddressV6Error> {
         // CIDR range is outside valid range
         let cidr = cidr.unwrap_or(128u8);
         if cidr > 128 {
             return Err(AddressV6Error::InvalidCidr);
         }
-        // Return the `AddressV6` struct
+        // Return the [`AddressV6`] struct
         Ok(AddressV6 {
             address,
             cidr,
@@ -173,7 +182,7 @@ impl AddressV6 {
     ///
     /// # Returns
     /// Returns a Result containing `(address, cidr)` tuple if parsing is successful,
-    /// or an `AddresskV6Error` if the input string is not a valid.
+    /// or an [`AddressV6Error`] if the input string is not a valid.
     /// Validation of `address` string is superficial so returned `address` value is
     /// *NOT* guaranteed to be valid IPv6 address.
     ///
@@ -189,7 +198,7 @@ impl AddressV6 {
     /// // Invalid - Result Err
     /// let (address, cidr) = AddressV6::_parse_string(str_address_only_valid).unwrap();
     /// ```
-    fn _parse_string(input: &str) -> Result<(&str, u8), AddressV6Error> {
+    fn _parse_raw_string(input: &str) -> Result<(&str, u8), AddressV6Error> {
         // Regex for loose validation (does it look like a valid address) of IPv6 format
         let regex_address_v6 = Regex::new(r"^([A-Fa-f0-9:]{1,4}:+)+([A-Fa-f0-9]{1,4})?$").unwrap();
 
@@ -219,47 +228,58 @@ impl AddressV6 {
         }
     }
 
-    /// This function returns a string representation of the IPv6 address.
-    ///
-    /// # Arguments
-    /// * `format` - An `AddressFormat` enum value that specifies the format of the output string.
+    /// Returns the first address in the IPv6 prefix.
+    /// Calculated as bitwise AND of the address and mask
     ///
     /// # Example
     /// ```
-    /// let string = address.to_string(AddressFormat::FormatShort);
+    /// let address = "1234:1234::abcd:ef/64";
+    /// let first_address = address.get_first_address();
     /// ```
-
+    /// # Returns
     /// Return the first usable address - all host bits set to 0
     /// For IPv6 this is the address of the network
     pub fn get_first_address(&self) -> u128 {
         self.address & self._mask
     }
 
+    /// Returns the last address in the IPv6 prefix
+    /// Calculated as bitwise OR of the address and inverted mask (ON bits for host part)
+    ///
+    /// # Example
+    /// ```
+    /// let address = "1234:1234::abcd:ef/64";
+    /// let first_address = address.get_last_address();
+    /// ```
+    /// # Returns
     /// Return the last usable address - all host bits set to 1
     pub fn get_last_address(&self) -> u128 {
-        // Invert the mask (to get all 1 bits for hosts part)
-        // and return bitwise OR of it and address
         self.address | (!self._mask)
     }
 
-    /// Checks if the `AddressV6` struct provided as an argument is contained in the `AddressV6`
+    /// Checks if the [`AddressV6`] struct provided as an argument is contained in the [`AddressV6`]
     ///
     /// # Arguments
     /// * `ip` - Subject of the test
     ///
     /// # Returns
-    /// True if the provided `AddressV6` being tested is within the [first, last] addresses
-    /// of the original `AddressV6`
+    /// True if the provided [`AddressV6`] being tested is within the [first, last] addresses
+    /// of the [`AddressV6`] the function was called on.
     pub fn contains(&self, ip: &AddressV6) -> bool {
         return self.get_first_address() <= ip.address && ip.address <= self.get_last_address();
     }
 
     /// Returns the string representation of the IPv6 address
-    pub fn to_string(&self, format: AddressFormat) -> String {
+    ///
+    /// # Arguments
+    /// * `format` - Desired output format ([`AddressFormat`])
+    ///
+    /// # Returns
+    /// [String] representation of [`AddressV6`].
+    pub fn as_string(&self, format: AddressFormat) -> String {
         AddressV6::dec_to_str(self.address, format)
     }
 
-    ///
     /// Return `true` if the Interface ID part of the IPv6 address has the bits
     /// indicative of EUI-64 set.
     /// ```
@@ -267,40 +287,45 @@ impl AddressV6 {
     ///       ^                 ^--------------^
     /// Universal bit                0xfffe
     /// ```
-    ///
     pub fn is_eui64(&self) -> bool {
         let eui64_mask: u64 = 0x20000fffe000000;
         self.get_eui64_num() & eui64_mask == eui64_mask
     }
 
-    /**
-    Truncate IPv6 address to last 64bits (Interface ID)
-    */
+    /// Truncate IPv6 address to last 64bits (Interface ID)
+    ///
+    /// # Returns
+    /// [u64] representing host part of the address
     fn get_eui64_num(&self) -> u64 {
         self.address as u64
     }
 
-    /**
-    Generate EUI-64 string in `aaaa:bbbb:cccc:dddd` format
-    */
+    /// Generate EUI-64 string in `aaaa:bbbb:cccc:dddd` format
+    ///
+    /// # Returns
+    /// [String] representation of EUI-64 number
     pub fn get_eui64_string(&self) -> String {
         let eui64_num = self.get_eui64_num();
 
+        // Initialize placeholders
         let mut hex_parts: [u32; 4] = [0; 4];
 
+        // Split `eui64_num` into for parts
         for i in 1..=4 {
             hex_parts[i - 1] = (eui64_num >> (64 - i * 16) & 0xffff) as u32;
         }
 
+        // Generate hex string separated with double colon
         let string_array = hex_parts.map(|h| format!("{:04x}", h));
         string_array.join(":")
     }
 
-    /**
-    Calculate the EUI-48 (MAC Address) that was used for generating EUI-64
-    1. Invert the U/L bit
-    2. Remove 0xfffe (the 24 through 48 bits)
-    */
+    /// Calculate the EUI-48 (MAC Address) that was used for generating EUI-64
+    /// 1. Invert the U/L bit
+    /// 2. Remove 0xfffe (the 24 through 48 bits)
+    ///
+    /// # Returns
+    /// [u64] representation of EUI-48 (MAC address)
     fn get_eui48_num(&self) -> u64 {
         // 0b0000001000000000000000000000000000000000000000000000000000000000
         let eui48_flip_mask = 0x200000000000000;
@@ -315,26 +340,33 @@ impl AddressV6 {
         part_1 + part_2
     }
 
-    /**
-    Generate EUI-48 string (MAC address) in `aa:bb:cc:dd:ee:ff` format
-    */
+    ///
+    /// Generate EUI-48 string (MAC address) in `aa:bb:cc:dd:ee:ff` format
+    ///
+    /// # Returns
+    /// [String] representation of EUI-48 (MAC address)
     pub fn get_eui48_string(&self) -> String {
         let eui48_num = self.get_eui48_num();
 
+        // Initialize placeholders and split the u64 number into 6 parts
         let mut hex_parts: [u32; 6] = [0; 6];
         for i in 1..=6 {
             hex_parts[i - 1] = (eui48_num >> (48 - i * 8) & 0xff) as u32;
         }
 
+        // Generate hex string separated with double colon
         let string_array = hex_parts.map(|h| format!("{:02x}", h));
         string_array.join(":")
     }
 
-    /**
-    Convert CIDR mask representation to an actual 128bit integer mask
-    # Arguments
-    * `cidr` - CIDR mask notation
-    */
+    ///
+    /// Convert CIDR ([u8]) representation of subnet mask to [u128] number
+    ///
+    /// # Arguments
+    /// * `cidr` - [u8] number representing CIDR length
+    ///
+    /// # Returns
+    /// [u128] number representing subnet mask
     fn cidr_to_mask(cidr: u8) -> u128 {
         match cidr {
             0 => 0,
@@ -342,6 +374,14 @@ impl AddressV6 {
         }
     }
 
+    /// Generate string representation of IPv6 address from [u128] address number
+    ///
+    /// # Arguments
+    /// * `address` - [u128] address number
+    /// * `format` - desired [AddressFormat]
+    ///
+    /// # Returns
+    /// [String] representation of [u128] in provided [AddressFormat]
     fn dec_to_str(address: u128, format: AddressFormat) -> String {
         // Initialize array of all zeros (for further bitwise transformation)
         let mut hex_parts: [u16; 8] = [0; 8];
@@ -357,27 +397,27 @@ impl AddressV6 {
             AddressFormat::FormatShort => {
                 let (start, end) = AddressV6::find_contiguous_zeros(&hex_parts);
 
-                /*
-                [1234, 0, 0, 1234, 0, 0, 0, 1234]
-                 |--------------|           |--|
-                       start                 end
-                 */
-                let p1 = &hex_parts[0..start];
-                let p2 = &hex_parts[end..];
-
-                // Convert u16s to hex strings
-                let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
-                let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
-
-                // If there are 8 parts use colon as a separator between s1 and s2 instead of double colon
-                let separator: &str = if s1.len() + s2.len() == 8 {
-                    ":"
+                // RFC 5952 Section 4.2.2: "::" MUST NOT be used for a single 16-bit 0 field.
+                // If no zeros or only a single zero group, format like condensed (no "::")
+                if end - start <= 1 {
+                    let string_array = hex_parts.map(|h| format!("{:x}", h));
+                    string = string_array.join(":");
                 } else {
-                    "::"
-                };
+                    /*
+                    [1234, 0, 0, 1234, 0, 0, 0, 1234]
+                     |--------------|           |--|
+                           start                 end
+                     */
+                    let p1 = &hex_parts[0..start];
+                    let p2 = &hex_parts[end..];
 
-                // Join two parts
-                string = format!("{}{}{}", s1.join(":"), separator, s2.join(":"));
+                    // Convert u16s to hex strings
+                    let s1 = p1.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
+                    let s2 = p2.iter().map(|h| format!("{:x}", h)).collect::<Vec<String>>();
+
+                    // Join two parts with "::"
+                    string = format!("{}::{}", s1.join(":"), s2.join(":"));
+                }
             }
             AddressFormat::FormatCondensed => {
                 let string_array = hex_parts.map(|h| format!("{:x}", h));
@@ -393,22 +433,29 @@ impl AddressV6 {
         string
     }
 
-    /**
-    Find the longest contiguous occurrence of 0 parts
-    `location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
-    `location` represents the longest contiguous occurrence
-    `location_tmp` represents the temporary counter
-    ```
-
-               location.1 = 3
-                   |---|
-     1234:0:0:1234:0:0:0:1234
-                       ^
-               location.0 = 7
-    ```
-     */
+    /// Find the longest contiguous occurrence of `0` bit parts of the IPv6 address
+    ///
+    /// # Arguments
+    /// * `array` - Array of eight [u16] parts of the IPv6 address
+    ///
+    /// # Returns
+    /// ([usize], [usize]) tuple representing (start, end) positions of the longest contiguous
+    /// occurrence of `0` bit parts of the IPv6 address. If there are no `0` parts (0,0) is returned
     pub fn find_contiguous_zeros(array: &[u16; 8]) -> (usize, usize) {
 
+        /*
+        `location` and `location_tmp` are the tuples that hold (0: end_position, 1: length)
+        `location` represents the longest contiguous occurrence
+        `location_tmp` represents the temporary counter
+        ```
+
+                  location.1 = 3
+                      |---|
+        1234:0:0:1234:0:0:0:1234
+                          ^
+               location.0 = 7
+        ```
+         */
         // Longest occurrence
         let mut location: (usize, usize) = (0, 0);
         // Temporary counter
@@ -437,6 +484,11 @@ impl AddressV6 {
             location = location_tmp;
         }
 
+        // No zeros found
+        if location.1 == 0 {
+            return (0, 0);
+        }
+
         // Start index is end position minus the length of null parts
         let start = 1 + location.0 - location.1;
         let end = location.0 + 1;
@@ -447,24 +499,27 @@ impl AddressV6 {
 
 impl Display for AddressV6 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string(AddressFormat::FormatFull))
+        write!(f, "{}", self.as_string(AddressFormat::FormatFull))
     }
 }
 
-/**
-Represents the possible errors that can occur during IPv6 address parsing.
-
-- `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
-- `InvalidCidr`: Indicates that the CIDR value in the network string is invalid.
-*/
+/// Represents the possible errors that can occur during IPv6 address parsing.
+///
+/// - `InvalidAddress`: Indicates that the address string is not a valid IPv6 address.
+/// - `InvalidCidr`: Indicates that the CIDR value in the network string is invalid.
 #[derive(Debug, PartialEq)]
 pub enum AddressV6Error {
     InvalidAddress,
     InvalidCidr
 }
 
+/// Represents "classes" of IPv6 addresses. This is just for display and NOT standardized
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum AddressClassV6 { ZERO, UNICAST, MULTICAST }
+pub enum AddressClassV6 {
+    ZERO,
+    UNICAST,
+    MULTICAST
+}
 
 impl AddressClassV6 {
     fn get(ip: u128) -> AddressClassV6 {
@@ -524,24 +579,50 @@ impl Display for AddressClassV6 {
     }
 }
 
-fn print_bar_colored(cidr: u8) -> String {
+/// Print the colored bars representing network / hosts parts
+///
+/// # Arguments
+/// * `cidr` - [u8] number representing CIDR length
+///
+/// # Returns
+/// [String] to be printed
+fn _print_bar_eui64_parts(cidr: u8) -> String {
     let position = cidr as usize / 4;
     let padding = position / 4;
     let bars = "▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄ ▄▄▄▄".chars().collect::<Vec<char>>();
+
+    // First part of the bars represent Network part of the prefix
     let part_1 = &bars[..(position + padding)].iter().collect::<String>();
+    // Second part of the bars represent Hosts part of the prefix
     let part_2 = &bars[(position + padding)..].iter().collect::<String>();
+
     format!("\x1b[38;5;92m{}\x1b[38;5;214m{}\x1b[0m", part_1, part_2)
 }
 
-fn print_bar_ipv6_parts(cidr: u8) -> String {
+/// Print the colored bars representing Prefix / Subnet ID / Interface identifier parts
+/// of en EUI-64 address. Should not be used for the address that are NOT EUI-64.
+///
+/// # Arguments
+/// * `cidr` - [u8] number representing CIDR length
+///
+/// # Returns
+/// [String] to be printed
+fn _print_bar_ipv6_parts(cidr: u8) -> String {
     let position = cidr as usize / 4;
     let padding = position / 4;
     let bars = "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ".chars().collect::<Vec<char>>();
+    // First part of the bars represent the Prefix part of the prefix
     let part_1 = &bars[..(position + padding)].iter().collect::<String>();
+    // Second part of the bars represent the Subnet ID part of the prefix
     let part_2 = &bars[(position + padding)..].iter().collect::<String>();
+    // Append colored parts of the bars and add Interface identifier part
     format!("\x1b[38;5;198m{}\x1b[38;5;38m{}\x1b[0m▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀", part_1, part_2)
 }
 
+/// Print the table with calculated information of the provided IPv6 prefix
+///
+/// # Arguments
+/// * `net` - [`AddressV6`] to be printed
 pub fn print_results(net: &AddressV6) -> () {
     let tw = 71;
     println!("┌{:─^1$}┐", "", tw - 2);
@@ -568,15 +649,15 @@ pub fn print_results(net: &AddressV6) -> () {
         println!("│{:^1$}│", "", tw - 2);
         if net.cidr == 64 {
             println!("│{:^1$}│", "\x1b[38;5;198m Prefix/Subnet    \x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 21);
-            println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+            println!("│{:^1$}│", _print_bar_ipv6_parts(net.cidr), tw + 23);
         } else if net.cidr < 64 {
             println!("│{:^1$}│", "\x1b[38;5;198m Prefix \x1b[38;5;38m Subnet ID\x1b[0m \x1b[0m Interface identifier\x1b[0m", tw + 31);
-            println!("│{:^1$}│", print_bar_ipv6_parts(net.cidr), tw + 23);
+            println!("│{:^1$}│", _print_bar_ipv6_parts(net.cidr), tw + 23);
         }
 
         println!("│{0:^1$}│", format!("\x1b[1m{}\x1b[0m", net), tw + 6);
 
-        println!("│{:^1$}│", print_bar_colored(net.cidr), tw + 23);
+        println!("│{:^1$}│", _print_bar_eui64_parts(net.cidr), tw + 23);
         println!("│{:^1$}│", "\x1b[38;5;92m Network part                \x1b[38;5;214m Hosts part \x1b[0m", tw + 23);
         println!("│{:^1$}│", "", tw - 2);
     }
@@ -617,7 +698,7 @@ mod tests {
         let address = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334").unwrap();
         assert_eq!(address.address, 42540766452641154071740215577757643572);
 
-        let address = AddressV6::from_string("2001:0db8:85a3::0:0:8a2e:0370:7334").unwrap();
+        let address = AddressV6::from_string("2001:0db8:85a3:0:0:8a2e:0370:7334").unwrap();
         assert_eq!(address.address, 42540766452641154071740215577757643572);
 
         let address = AddressV6::from_string("2001:0db8:85a3::").unwrap();
@@ -630,29 +711,29 @@ mod tests {
     #[test]
     fn test_address_v6_to_string_condensable() {
         let address = AddressV6::from_dec(42540766452641154071740215577757643572, Some(0)).unwrap();
-        assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
-        assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:0:8a2e:370:7334");
-        assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:0:8a2e:370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334");
 
         let address = AddressV6::from_dec(42540766452641154081696963253260779520, Some(0)).unwrap();
-        assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:8a2e:0370:0000:0000");
-        assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:8a2e:370:0:0");
-        assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3:0:8a2e:370::");
+        assert_eq!(address.as_string(AddressFormat::FormatFull), "2001:0db8:85a3:0000:8a2e:0370:0000:0000");
+        assert_eq!(address.as_string(AddressFormat::FormatCondensed), "2001:db8:85a3:0:8a2e:370:0:0");
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "2001:db8:85a3:0:8a2e:370::");
     }
 
     #[test]
     fn test_address_v6_to_string_uncondensable() {
         let address = AddressV6::from_dec(42540766452641154090187522601420616500, Some(0)).unwrap();
-        assert_eq!(address.to_string(AddressFormat::FormatFull), "2001:0db8:85a3:0001:0002:8a2e:0370:7334");
-        assert_eq!(address.to_string(AddressFormat::FormatCondensed), "2001:db8:85a3:1:2:8a2e:370:7334");
-        assert_eq!(address.to_string(AddressFormat::FormatShort), "2001:db8:85a3:1:2:8a2e:370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatFull), "2001:0db8:85a3:0001:0002:8a2e:0370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatCondensed), "2001:db8:85a3:1:2:8a2e:370:7334");
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "2001:db8:85a3:1:2:8a2e:370:7334");
     }
 
     #[test]
     fn test_address_v6_display_format() {
         let address = AddressV6::from_dec(42540766452641154071740215577757643572, Some(0)).unwrap();
 
-        assert_eq!(format!("{}", address), address.to_string(AddressFormat::FormatFull));
+        assert_eq!(format!("{}", address), address.as_string(AddressFormat::FormatFull));
         assert_eq!(format!("{}", address), "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
     }
 
@@ -698,14 +779,14 @@ mod tests {
     fn test_network_v6_new_64() {
         let network = AddressV6::from_string("2001:0db8:85a3::8a2e:0370:7334/64").unwrap();
         assert_eq!(network.cidr, 64);
-        assert_eq!(network.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
+        assert_eq!(network.as_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
     }
 
     #[test]
     fn test_network_v6_new_128() {
         let network = AddressV6::from_string("2001:0db8:85a3:0000:0000:8a2e:0370:7334/128").unwrap();
         assert_eq!(network.cidr, 128);
-        assert_eq!(network.to_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
+        assert_eq!(network.as_string(AddressFormat::FormatShort), "2001:db8:85a3::8a2e:370:7334")
     }
 
     #[test]
@@ -866,10 +947,89 @@ mod tests {
     }
 
     #[test]
+    fn test_find_contiguous_zeros_middle() {
+        // 1234:0:0:1234:0:0:0:1234 — longest run is positions 4..7
+        let array: [u16; 8] = [0x1234, 0, 0, 0x1234, 0, 0, 0, 0x1234];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (4, 7));
+    }
+
+    #[test]
+    fn test_find_contiguous_zeros_start() {
+        let array: [u16; 8] = [0, 0, 0, 0x1234, 0, 0, 0x1234, 0x1234];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (0, 3));
+    }
+
+    #[test]
+    fn test_find_contiguous_zeros_end() {
+        let array: [u16; 8] = [0x1234, 0x1234, 0x1234, 0x1234, 0x1234, 0, 0, 0];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (5, 8));
+    }
+
+    #[test]
+    fn test_find_contiguous_zeros_none() {
+        let array: [u16; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (0, 0));
+    }
+
+    #[test]
+    fn test_find_contiguous_zeros_all() {
+        let array: [u16; 8] = [0; 8];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (0, 8));
+    }
+
+    #[test]
+    fn test_find_contiguous_zeros_tie_takes_first() {
+        // Two equal-length runs — should pick the first one
+        let array: [u16; 8] = [0, 0, 1, 1, 0, 0, 1, 1];
+        assert_eq!(AddressV6::find_contiguous_zeros(&array), (0, 2));
+    }
+
+    #[test]
     fn test_network_v6_class_display_format() {
         assert_eq!(AddressClassV6::ZERO.to_string(), "Unspecified IPv6 address");
         assert_eq!(AddressClassV6::MULTICAST.to_string(), "Multicast IPv6 address");
         assert_eq!(AddressClassV6::UNICAST.to_string(), "Unicast IPv6 address");
+    }
+
+    #[test]
+    fn test_format_short_single_zero_no_collapse() {
+        // RFC 5952 Section 4.2.2: "::" MUST NOT be used for a single 16-bit 0 field.
+        // "1:0:3:4:5:6:7:8" should stay as-is, not become "1::3:4:5:6:7:8".
+        let address = AddressV6::from_string("1:0:3:4:5:6:7:8").unwrap();
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "1:0:3:4:5:6:7:8");
+    }
+
+    #[test]
+    fn test_format_short_single_leading_zero_no_collapse() {
+        // "0:1:2:3:4:5:6:7" should stay as-is, not become "::1:2:3:4:5:6:7".
+        let address = AddressV6::from_string("0:1:2:3:4:5:6:7").unwrap();
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "0:1:2:3:4:5:6:7");
+    }
+
+    #[test]
+    fn test_format_short_single_trailing_zero_no_collapse() {
+        // "1:2:3:4:5:6:7:0" should stay as-is, not become "1:2:3:4:5:6:7::".
+        let address = AddressV6::from_string("1:2:3:4:5:6:7:0").unwrap();
+        assert_eq!(address.as_string(AddressFormat::FormatShort), "1:2:3:4:5:6:7:0");
+    }
+
+    #[test]
+    fn test_double_colon_must_expand_to_at_least_one_group() {
+        // Per RFC 4291, "::" represents one or more groups of zeros.
+        // If all 8 groups are explicitly present, "::" expands to nothing,
+        // which means these inputs should be rejected as invalid.
+        assert!(matches!(
+            AddressV6::from_string("1:2:3:4::5:6:7:8"),
+            Err(AddressV6Error::InvalidAddress)
+        ));
+        assert!(matches!(
+            AddressV6::from_string("::1:2:3:4:5:6:7:8"),
+            Err(AddressV6Error::InvalidAddress)
+        ));
+        assert!(matches!(
+            AddressV6::from_string("1:2:3:4:5:6:7:8::"),
+            Err(AddressV6Error::InvalidAddress)
+        ));
     }
 
 }

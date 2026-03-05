@@ -128,7 +128,13 @@ impl AddressV4 {
         match parts.len() {
             // IP: <part[0]>
             //TODO: Replace hardcoded CIDR with default class
-            1 => return Ok((address, 32u8)),
+            1 => {
+                if !regex_address_v4.is_match(address) {
+                    return Err(AddressError::InvalidAddress);
+                }
+                let _address_dec = AddressV4::dotted_decimal_to_int(address)?;
+                return Ok((address, 32u8));
+            },
             // IP: <part[0]>/<part[1]>
             2 => {
                 if !regex_address_v4.is_match(address) {
@@ -519,8 +525,12 @@ mod tests {
     }
 
     #[test]
-    fn test_int_to_cidr_invalid() {
-        //TODO: Add checks for invalid CIDR
+    fn test_int_to_cidr_non_contiguous() {
+        // Non-contiguous mask: 255.0.255.0 = 0xff00ff00
+        // int_to_cidr counts leading 1-bits recursively, so for a non-contiguous
+        // mask it will return an incorrect CIDR. Verify it doesn't match the
+        // expected value for a contiguous mask with the same number of 1-bits.
+        assert_ne!(int_to_cidr(&0xff00ff00u32, 0), 16);
     }
 
     #[test]
@@ -534,11 +544,31 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_dotted_decimal_to_int_invalid() {
+    fn test_dotted_decimal_to_int_invalid_double_dot() {
         dotted_decimal_to_int("0..0.0");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dotted_decimal_to_int_invalid_octet_overflow() {
         dotted_decimal_to_int("0.256.0.0");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dotted_decimal_to_int_invalid_three_octets() {
         dotted_decimal_to_int("0.0.0");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dotted_decimal_to_int_invalid_alpha() {
         dotted_decimal_to_int("0.a.0.0");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dotted_decimal_to_int_invalid_negative() {
         dotted_decimal_to_int("0.-1.0.0");
     }
 
@@ -793,5 +823,75 @@ mod tests {
         assert_eq!(network.is_p2p(), true);
         let network = AddressV4::from_string("192.0.2.2/32").unwrap();
         assert_eq!(network.is_p2p(), false);
+    }
+
+    #[test]
+    fn test_from_string_invalid_address() {
+        assert!(matches!(AddressV4::from_string("invalid"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::from_string("10.10.0/24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::from_string("asd/24"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::from_string("10.256.0.0/24"), Err(AddressError::InvalidAddress)));
+    }
+
+    #[test]
+    fn test_from_string_invalid_cidr() {
+        assert!(matches!(AddressV4::from_string("10.0.0.0/33"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::from_string("10.0.0.0/"), Err(AddressError::InvalidCidr)));
+        assert!(matches!(AddressV4::from_string("10.0.0.0/abc"), Err(AddressError::InvalidCidr)));
+    }
+
+    #[test]
+    fn test_network_contains() {
+        let network = AddressV4::from_string("192.168.1.0/24").unwrap();
+
+        // Inside the network
+        let ip = AddressV4::from_string("192.168.1.100/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+
+        // Network address itself
+        let ip = AddressV4::from_string("192.168.1.0/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+
+        // Broadcast address
+        let ip = AddressV4::from_string("192.168.1.255/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+
+        // Outside the network
+        let ip = AddressV4::from_string("192.168.2.0/32").unwrap();
+        assert_eq!(network.contains(ip), false);
+
+        let ip = AddressV4::from_string("192.168.0.255/32").unwrap();
+        assert_eq!(network.contains(ip), false);
+    }
+
+    #[test]
+    fn test_network_contains_slash_32() {
+        let network = AddressV4::from_string("10.0.0.1/32").unwrap();
+
+        let ip = AddressV4::from_string("10.0.0.1/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+
+        let ip = AddressV4::from_string("10.0.0.2/32").unwrap();
+        assert_eq!(network.contains(ip), false);
+    }
+
+    #[test]
+    fn test_network_contains_slash_0() {
+        let network = AddressV4::from_string("0.0.0.0/0").unwrap();
+
+        let ip = AddressV4::from_string("0.0.0.0/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+
+        let ip = AddressV4::from_string("255.255.255.255/32").unwrap();
+        assert_eq!(network.contains(ip), true);
+    }
+
+    #[test]
+    fn test_from_string_no_slash_invalid() {
+        // from_string without "/" skips regex validation in _parse_string (line 131)
+        // and passes the raw string to dotted_decimal_to_int which panics.
+        // These should return Err(InvalidAddress) instead.
+        assert!(matches!(AddressV4::from_string("invalid"), Err(AddressError::InvalidAddress)));
+        assert!(matches!(AddressV4::from_string(""), Err(AddressError::InvalidAddress)));
     }
 }
