@@ -1,8 +1,9 @@
 [package]
 name = "ipcrust"
 authors = ["Pavle Obradovic <pobradovic08@gmail.com>"]
-license = "GPL-3"
+license = "GPL-3.0-only"
 description = "IP calculator written in Rust"
+repository = "https://github.com/pobradovic08/ipcrust"
 version = "0.2.1"
 edition = "2021"
 
